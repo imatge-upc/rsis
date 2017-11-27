@@ -8,7 +8,7 @@ import pycocotools.mask as mask
 from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint, check_parallel
 from scipy.ndimage.measurements import center_of_mass
 from scipy.ndimage.morphology import binary_fill_holes
-from modules.model import RIASS, FeatureExtractor
+from modules.model import RSIS, FeatureExtractor
 from test import test
 from PIL import Image
 from scipy.misc import imread
@@ -17,7 +17,6 @@ import torch
 import numpy as np
 from torch.autograd import Variable
 from skimage import measure
-from collections import Counter
 from torchvision import transforms
 import torch.utils.data as data
 import pickle
@@ -25,7 +24,7 @@ import sys, os
 import json
 from scipy.ndimage.interpolation import zoom
 import random
-from dataloader.dataset_utils import pascal_palette, sequence_palette
+from dataloader.dataset_utils import sequence_palette
 
 
 def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=False, display_route=False):
@@ -96,7 +95,7 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
         ax = plt.subplot(111)
         ax.add_line(line)
 
-def resize_mask(args, pred_mask,height,width,flip=False,ignore_pixels = None):
+def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
     """
     Processes the mask for evaluation.
     Args:
@@ -125,23 +124,6 @@ def resize_mask(args, pred_mask,height,width,flip=False,ignore_pixels = None):
         segmentation[ignore_pixels==1] = 0
     if np.sum(segmentation) < args.min_size*height*width:
         is_valid = False
-    if args.keep_biggest_blob and is_valid:
-        # detect connected components in mask
-        labeled_blobs = measure.label(segmentation,background=0).flatten()
-        # find the biggest one
-        count = Counter(labeled_blobs)
-        s = []
-        max_num = 0
-        for v,k in count.iteritems():
-            if v == 0:
-                continue
-            if k > max_num:
-                max_num = k
-                max_label = v
-        # build mask from the largest connected component
-        segmentation = (labeled_blobs == max_label).astype("uint8")
-    if flip:
-        segmentation = np.flip(segmentation,axis=1)
 
     segmentation = mask.encode(np.asfortranarray(segmentation.reshape([height,width,1])))[0]
     segmentation_raw = (pred_mask > th).astype("uint8")
@@ -203,13 +185,7 @@ class Evaluate():
         self.no_display_text = args.no_display_text
         self.dataset = args.dataset
         self.all_classes = args.all_classes
-        self.save_gates = args.save_gates
-        self.average_gates = args.average_gates
         self.use_cats = args.use_cats
-        if hasattr(args, 'rnn_type'):
-            self.rnn_type = args.rnn_type
-        else:
-            self.rnn_type = 'lstm'
         to_tensor = transforms.ToTensor()
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
@@ -242,19 +218,12 @@ class Evaluate():
                 else:
                     self.key_to_anns[ann['image_id']]=[ann]
             self.coco = create_coco_object(args,self.sample_list,self.class_names)
-
-        elif args.dataset =='coco':
-            root = os.path.join(args.coco_dir,'images')
-            annFile = '%s/annotations/instances_%s2014.json'%(args.coco_dir,self.split)
-            self.coco = COCO(annFile)
-
         self.loader = data.DataLoader(dataset,batch_size=args.batch_size,
                                              shuffle=False,
                                              num_workers=args.num_workers,
                                              drop_last=False)
 
         self.args = args
-        self.flip_in_eval = args.flip_in_eval
         self.colors = []
         palette = sequence_palette()
         inv_palette = {}
@@ -268,12 +237,9 @@ class Evaluate():
             self.colors.append(c)
 
         encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name)
-        load_args.nconvlstm = 5
-        #load_args.limit_width = True
-        self.args.use_feedback = load_args.use_feedback
         #load_args.base_model = args.base_model
         self.encoder = FeatureExtractor(load_args)
-        self.decoder = RIASS(load_args)
+        self.decoder = RSIS(load_args)
 
         print(load_args)
 
@@ -295,39 +261,26 @@ class Evaluate():
     def _create_json(self):
 
         predictions = list()
-        if self.save_gates:
-            sample2gates = {}
         argmax_preds = {}
         acc_samples = 0
         print "Creating annotations..."
 
         for batch_idx, (inputs, targets) in enumerate(self.loader):
-            if self.flip_in_eval:
-                inputs = np.flip(inputs.numpy(),axis=-1).copy()
-                inputs = torch.from_numpy(inputs)
+
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
             num_objects = np.sum(sw_mask.data.float().cpu().numpy(),axis=-1)
-            if self.save_gates:
 
-                outs, true_perms, stop_probs, gates =  test(self.args,
-                                                            self.encoder,
-                                                            self.decoder, x, y_mask,
-                                                            y_class, sw_mask,
-                                                            sw_class,
-                                                            save_gates = self.save_gates,
-                                                            average = self.average_gates)
-            else:
-                outs, true_perms, stop_probs =  test(self.args, self.encoder,
-                                                    self.decoder, x, y_mask,
-                                                    y_class, sw_mask,
-                                                    sw_class)
+            outs, true_perms, stop_probs =  test(self.args, self.encoder,
+                                                 self.decoder, x, y_mask,
+                                                 y_class, sw_mask,
+                                                 sw_class)
             out_scores = outs[1]
             out_scores = out_scores.cpu().numpy()
             stop_scores = stop_probs.cpu().numpy()
 
             w = x.size()[-1]
             h = x.size()[-2]
-            out_masks, out_classes, y_mask, y_class, prev_masks = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
+            out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
             if self.args.use_gt_cats:
                 out_classes = y_class[:,0:self.args.maxseqlen]
 
@@ -343,18 +296,8 @@ class Evaluate():
                 else:
                     ignore_mask = None
 
-                if self.save_gates:
-                    if self.rnn_type == 'lstm':
-                        sample2gates[sample_idx] = {'hidden':{},'cell':{},'forget':{},'input':{}}
-                    else:
-                        sample2gates[sample_idx] = {'hidden':{},'update':{},'reset':{}}
-                    if not self.average_gates:
-                        sample2gates[sample_idx] = {'hidden':{}}
                 if self.dataset == 'pascal':
                     image_dir = os.path.join(args.pascal_dir,'JPEGImages',sample_idx +'.jpg')
-                elif self.dataset == 'coco':
-                    path = self.coco.loadImgs(sample_idx)[0]['file_name']
-                    image_dir = os.path.join(args.coco_dir,'images',self.split+'2014',path)
                 elif self.dataset == 'cityscapes':
                     sample_idx = sample_idx.split('.')[0]
                     image_dir = sample_idx + '.png'
@@ -362,8 +305,6 @@ class Evaluate():
                     image_dir = sample_idx
 
                 im = imread(image_dir)
-                if self.flip_in_eval:
-                    im = np.flip(im,axis=1)
                 h = im.shape[0]
                 w = im.shape[1]
                 objectness_scores = []
@@ -385,7 +326,7 @@ class Evaluate():
                         max_class = out_classes[s][i]
                     # process mask to create annotation
 
-                    pred_mask, is_valid,raw_pred_mask = resize_mask(args,pred_mask,h,w,self.flip_in_eval,ignore_mask)
+                    pred_mask, is_valid,raw_pred_mask = resize_mask(args,pred_mask,h,w,ignore_mask)
 
                     # for evaluation we repeat the mask with all its class probs
                     for cls_id in range(len(self.class_names)):
@@ -408,15 +349,6 @@ class Evaluate():
                         if self.args.use_gt_stop:
                             if y_class[s][i] == 0:
                                 continue
-                        '''
-                        if not cls_id == max_class:
-                            continue
-                        '''
-                        '''
-                        #uncomment to filter out preds based on score
-                        if pred_class_score < args.class_th:
-                            continue
-                        '''
 
                         ann = create_annotation(self.args, sample_idx, pred_mask,
                                                 cls_id, pred_class_score_mod,
@@ -425,14 +357,6 @@ class Evaluate():
                             if self.dataset == 'leaves':
                                 if objectness > args.class_th:
                                     this_pred.append(ann)
-
-                                    if self.save_gates:
-                                        for key in gates.keys():
-                                            for i_g in gates[key].keys():
-                                                value = gates[key][i_g][i, s, :, :].squeeze()
-                                                if i_g not in sample2gates[sample_idx][key].keys():
-                                                    sample2gates[sample_idx][key][i_g] = []
-                                                sample2gates[sample_idx][key][i_g].append(value)
                             else:
                                 # for display we only take the mask with max confidence
                                 if cls_id == max_class and pred_class_score_mod >= self.args.class_th:
@@ -442,14 +366,7 @@ class Evaluate():
                                     this_pred.append(ann_save)
                                     objectness_scores.append(objectness)
                                     class_scores.append(pred_class_score)
-                                    #raw_masks.append(raw_mask)
-                                    if self.save_gates:
-                                        for key in sample2gates[sample_idx].keys():
-                                            for i_g in gates[key].keys():
-                                                value = gates[key][i_g][i,s].squeeze()
-                                                if i_g not in sample2gates[sample_idx][key].keys():
-                                                    sample2gates[sample_idx][key][i_g] = []
-                                                sample2gates[sample_idx][key][i_g].append(value)
+
                             predictions.append(ann)
                 argmax_preds[sample_idx] = {}
                 argmax_preds[sample_idx]['anns'] = this_pred
@@ -457,8 +374,7 @@ class Evaluate():
                 argmax_preds[sample_idx]['height'] = im.shape[0]
                 argmax_preds[sample_idx]['objectness'] = objectness_scores
                 argmax_preds[sample_idx]['class'] = class_scores
-                #argmax_preds[sample_idx]['raw'] = raw_masks
-                #print objectness_scores
+
                 if self.display:
                     figures_dir = os.path.join('../models',args.model_name, args.model_name+'_figs_' + args.eval_split)
                     make_dir(figures_dir)
@@ -468,44 +384,20 @@ class Evaluate():
                     plt.imshow(im)
                     display_masks(this_pred, self.colors, im_height=im.shape[0],
                                 im_width=im.shape[1],
-                                no_display_text=self.args.no_display_text,
-                                flip=self.flip_in_eval)
+                                no_display_text=self.args.no_display_text)
 
-                    if self.dataset == 'coco':
-                        sample_idx = self.coco.loadImgs(sample_idx)[0]['file_name'][:-4]
                     if self.dataset == 'cityscapes':
                         sample_idx = sample_idx.split('/')[-1]
                     if self.dataset == 'leaves':
                         sample_idx = sample_idx.split('/')[-1]
-
-                    if self.flip_in_eval:
-                        figname = os.path.join(figures_dir, sample_idx+'_flip')
-                    else:
-                        figname = os.path.join(figures_dir, sample_idx)
+                    figname = os.path.join(figures_dir, sample_idx)
                     plt.savefig(figname,bbox_inches='tight')
                     plt.close()
-
-                    # uncomment to display ground truth masks
-                    gt_anns = self.key_to_anns[sample_idx]
-                    im = imread(image_dir)
-                    plt.figure();plt.axis('off')
-                    plt.imshow(im)
-                    display_masks(gt_anns, self.colors, im_height=im.shape[0],
-                                im_width=im.shape[1],
-                                no_display_text=self.args.no_display_text)
-
-                    plt.savefig(os.path.join(figures_dir,sample_idx+'_gt.png'),bbox_inches='tight')
-                    plt.close()
-                    
 
             acc_samples+=np.shape(out_masks)[0]
 
         with open(os.path.join('../models',args.model_name,'argmax_preds_'+args.eval_split+'.pkl'),'wb') as f:
             pickle.dump(argmax_preds,f,protocol=pickle.HIGHEST_PROTOCOL)
-
-        if self.save_gates:
-            with open(os.path.join('../models',args.model_name,'gates_'+args.eval_split+'.pkl'),'wb') as f:
-                pickle.dump(sample2gates,f,protocol=pickle.HIGHEST_PROTOCOL)
         return predictions
 
     def run_eval(self):
@@ -516,8 +408,6 @@ class Evaluate():
 
         if self.dataset == 'pascal':
             cocoGT = self.coco.loadRes(self.gt_file)
-        elif self.dataset == 'coco':
-            cocoGT = self.coco
         predictions = self._create_json()
 
         cocoP = self.coco.loadRes(predictions)

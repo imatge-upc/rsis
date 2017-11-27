@@ -56,58 +56,6 @@ class ResNet34(ResNet):
 
         return x5,x4,x3,x2,x1
 
-class WideResNet101(WideResNet):
-    """Returns intermediate features from ResNet-50"""
-    def __init__(self):
-        super(WideResNet101,self).__init__(WideBottleneck, [3, 4, 23, 3], 1000)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x1 = self.relu(x)
-        x = self.maxpool(x1)
-        x2 = self.layer1(x)
-        x3 = self.layer2(x2)
-        x4 = self.layer3(x3)
-        x5 = self.layer4(x4)
-
-        return x5,x4,x3,x2,x1
-
-class WideResNet50(WideResNet):
-    """Returns intermediate features from ResNet-50"""
-    def __init__(self):
-        super(WideResNet50,self).__init__(WideBottleneck, [3, 4, 6, 3], 1000)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x1 = self.relu(x)
-        x = self.maxpool(x1)
-        x2 = self.layer1(x)
-        x3 = self.layer2(x2)
-        x4 = self.layer3(x3)
-        x5 = self.layer4(x4)
-
-        return x5,x4,x3,x2,x1
-
-class WideResNet34(WideResNet):
-    """Returns intermediate features from ResNet-34"""
-    def __init__(self):
-        super(WideResNet34,self).__init__(WideBasicBlock, [3, 4, 6, 3], 1000)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x1 = self.relu(x)
-        x = self.maxpool(x1)
-        x2 = self.layer1(x)
-        x3 = self.layer2(x2)
-        x4 = self.layer3(x3)
-        x5 = self.layer4(x4)
-
-        return x5,x4,x3,x2,x1
-
-
 class VGG16(nn.Module):
 
     def __init__(self, num_classes = 1000, features  =  [64, 64, 'M',

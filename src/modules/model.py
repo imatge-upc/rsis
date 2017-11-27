@@ -1,19 +1,16 @@
 import torch
 import torch.nn as nn
-from clstm import ConvLSTMCell, ConvGRUCell
+from clstm import ConvLSTMCell
 import argparse
 import torch.nn.functional as f
 from torch.autograd import Variable
 from torchvision import transforms, models
 import torch.nn as nn
 import math
-from vision import ResNet50, ResNet34, VGG16, ResNet101, WideResNet34, WideResNet50, WideResNet101
+from vision import VGG16, ResNet34, ResNet50, ResNet101
 import sys
 sys.path.append("..")
 from utils.utils import get_skip_dims
-import drn
-from segment import DRNSeg
-from deeplab import Classifier_Module
 
 class FeatureExtractor(nn.Module):
     '''
@@ -24,35 +21,17 @@ class FeatureExtractor(nn.Module):
         skip_dims_in = get_skip_dims(args.base_model)
 
         if args.base_model == 'resnet34':
-            if args.wideresnet:
-                self.base = WideResNet34()
-            else:
-                self.base = ResNet34()
+            self.base = ResNet34()
             self.base.load_state_dict(models.resnet34(pretrained=True).state_dict())
         elif args.base_model == 'resnet50':
-            if args.wideresnet:
-                self.base = WideResNet50()
-            else:
-                self.base = ResNet50()
+            self.base = ResNet50()
             self.base.load_state_dict(models.resnet50(pretrained=True).state_dict())
         elif args.base_model == 'resnet101':
-            if args.wideresnet:
-                self.base = WideResNet101()
-            else:
-                self.base = ResNet101()
+            self.base = ResNet101()
             self.base.load_state_dict(models.resnet101(pretrained=True).state_dict())
         elif args.base_model == 'vgg16':
             self.base = VGG16()
             self.base.load_state_dict(models.vgg16(pretrained=True).state_dict())
-        elif 'drn' in args.base_model:
-            self.base = DRNSeg(args.base_model, classes=19,
-                            pretrained_model=None, pretrained=False,
-                            use_torch_up=False)
-            if args.drn_seg:
-                pretrained_dict = torch.load(args.seg_checkpoint_path)
-                model_dict = self.base.state_dict()
-                pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-                self.base.load_state_dict(pretrained_dict)
 
         else:
             raise Exception("The base model you chose is not supported !")
@@ -90,13 +69,13 @@ class FeatureExtractor(nn.Module):
         else:
             return x5_skip, x4_skip, x3_skip, x2_skip, x1_skip
 
-class RIASS(nn.Module):
+class RSIS(nn.Module):
     """
     The recurrent decoder
     """
 
     def __init__(self, args):
-        super(RIASS,self).__init__()
+        super(RSIS,self).__init__()
 
         if hasattr(args, 'rnn_type'):
             self.rnn_type = args.rnn_type
@@ -107,9 +86,7 @@ class RIASS(nn.Module):
             self.conv_start = args.conv_start
         else:
             self.conv_start = 0
-        self.nconvlstm = args.nconvlstm
         skip_dims_in = get_skip_dims(args.base_model)
-        skip_dims_in = skip_dims_in[self.conv_start:self.conv_start+self.nconvlstm]
         self.input_dim = skip_dims_in[0]
         self.input_size = args.imsize
         self.hidden_size = args.hidden_size
@@ -122,23 +99,16 @@ class RIASS(nn.Module):
         self.dropout_cls = args.dropout_cls
         self.batchnorm = args.batchnorm
         self.skip_mode = args.skip_mode
-        self.D = args.D
-        self.limit_width = args.limit_width
-
-        if hasattr(args, 'rnn_type'):
-            self.rnn_type = args.rnn_type
-        else:
-            self.rnn_type = 'lstm'
 
         # convlstms have decreasing dimension as width and height increase
         skip_dims_out = [self.hidden_size, self.hidden_size/2,
                          self.hidden_size/4,self.hidden_size/8,
-                         self.hidden_size/16][0:self.nconvlstm]
+                         self.hidden_size/16]
 
         # initialize layers for each deconv stage
         self.clstm_list = nn.ModuleList()
         # 5 is the number of deconv steps that we need to reach image size in the output
-        for i in range(self.nconvlstm):
+        for i in range(len(skip_dims_out)):
             if i == 0:
                 clstm_in_dim = self.hidden_size
             else:
@@ -146,13 +116,7 @@ class RIASS(nn.Module):
                 if self.skip_mode == 'concat':
                     clstm_in_dim*=2
 
-            if args.use_feedback:
-                clstm_in_dim = clstm_in_dim + 1 # +1 for additional channel containing canvas of masks
-
-            if self.rnn_type == 'lstm':
-                clstm_i = ConvLSTMCell(args, clstm_in_dim, skip_dims_out[i],self.kernel_size, padding = padding)
-            else:
-                clstm_i = ConvGRUCell(args, clstm_in_dim, skip_dims_out[i],self.kernel_size, padding = padding)
+            clstm_i = ConvLSTMCell(args, clstm_in_dim, skip_dims_out[i],self.kernel_size, padding = padding)
             self.clstm_list.append(clstm_i)
 
         #self.last_bn = nn.BatchNorm2d(skip_dims_out[-1])
@@ -173,46 +137,23 @@ class RIASS(nn.Module):
         #self.conv_class = nn.Conv2d(fc_dim,self.num_classes,self.kernel_size,padding=padding)
         #self.conv_stop = nn.Conv2d(conv_stop_in,1,1,padding=0)
 
-    def forward(self, skip_feats, prev_hidden_list, prev_mask = None, return_gates = False):
+    def forward(self, skip_feats, prev_hidden_list):
 
-        skip_feats = skip_feats[self.conv_start:self.conv_start+self.nconvlstm]
         clstm_in = skip_feats[0]
         skip_feats = skip_feats[1:]
         side_feats = []
         hidden_list = []
 
-        if return_gates:
-            gate_list = []
-
         for i in range(len(skip_feats)+1):
-
-            if prev_mask is not None:
-                # add the previous mask as a channel in the conv lstm's input
-                downsample = nn.AdaptiveMaxPool2d(output_size=clstm_in.size()[2:])
-                prev_mask_i = downsample(prev_mask)
-                # concat prev_mask
-                clstm_in = torch.cat([clstm_in,prev_mask_i],1)
 
             # hidden states will be initialized the first time forward is called
             if prev_hidden_list is None:
-                if return_gates:
-                    state,in_gate,remember_gate = self.clstm_list[i](clstm_in,None,return_gates)
-                    gate_list.append([in_gate,remember_gate])
-                else:
-                    state = self.clstm_list[i](clstm_in,None,return_gates)
+                state = self.clstm_list[i](clstm_in,None)
             else:
                 # else we take the ones from the previous step for the forward pass
-                if return_gates:
-                    state,in_gate,remember_gate = self.clstm_list[i](clstm_in,prev_hidden_list[i],return_gates)
-                    gate_list.append([in_gate,remember_gate])
-                else:
-                    state = self.clstm_list[i](clstm_in,prev_hidden_list[i],return_gates)
+                state = self.clstm_list[i](clstm_in,prev_hidden_list[i])
             hidden_list.append(state)
-
-            if self.rnn_type == 'lstm':
-                hidden = state[0]
-            else:
-                hidden = state
+            hidden = state[0]
 
             if self.dropout > 0:
                 hidden = nn.Dropout2d(self.dropout)(hidden)
@@ -223,12 +164,8 @@ class RIASS(nn.Module):
 
             # apply skip connection
             if i < len(skip_feats):
-                if self.limit_width and i>1:
-                    resize_skip = nn.UpsamplingBilinear2d((hidden.size()[-2],hidden.size()[-1]))
-                    skip_vec = resize_skip(skip_feats[i])
-                else:
-                    skip_vec = skip_feats[i]
 
+                skip_vec = skip_feats[i]
                 upsample = nn.UpsamplingBilinear2d(size = (skip_vec.size()[-2],skip_vec.size()[-1]))
                 hidden = upsample(hidden)
                 # skip connection
@@ -243,9 +180,8 @@ class RIASS(nn.Module):
                 else:
                     raise Exception('Skip connection mode not supported !')
             else:
-                if not self.limit_width:
-                    self.upsample = nn.UpsamplingBilinear2d(size = (hidden.size()[-2]*2,hidden.size()[-1]*2))
-                    hidden = self.upsample(hidden)
+                self.upsample = nn.UpsamplingBilinear2d(size = (hidden.size()[-2]*2,hidden.size()[-1]*2))
+                hidden = self.upsample(hidden)
                 clstm_in = hidden
 
         #clstm_in = self.last_bn(clstm_in)
@@ -268,20 +204,4 @@ class RIASS(nn.Module):
         # the log is computed in the objective function
         class_probs = nn.Softmax()(class_feats)
 
-        if return_gates:
-            return out_mask, class_probs, stop_probs, hidden_list, gate_list
-        else:
-            return out_mask, class_probs, stop_probs, hidden_list
-
-class SemanticSegmentation(nn.Module):
-
-    def __init__(self,args):
-        super(SemanticSegmentation, self).__init__()
-        skip_dims_in = get_skip_dims(args.base_model)
-        self.conv1 = nn.Conv2d(skip_dims_in[0], args.num_classes, 1, padding = 0,bias=True)
-        self.up = nn.UpsamplingBilinear2d(scale_factor=8)
-        self.softmax = nn.LogSoftmax()
-
-    def forward(self,feat):
-
-        return self.softmax(self.up(self.conv1(feat)))
+        return out_mask, class_probs, stop_probs, hidden_list

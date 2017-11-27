@@ -5,78 +5,9 @@ import numpy as np
 import pickle
 from collections import OrderedDict
 
-def package_states(gate_info, hidden,gates, T,t, rnn_type='lstm',average=True):
-    if rnn_type == 'lstm':
-        for i_h,h in enumerate(hidden):
-            hidden_state = h[0].cpu().data.numpy()
-            cell_state = h[1].cpu().data.numpy()
-            if average:
-                hidden_state = np.mean(hidden_state,axis=1)
-                cell_state = np.mean(cell_state,axis=1)
-            if i_h not in gate_info['hidden'].keys():
-                shape = [T]
-                for s in hidden_state.shape:
-                    shape.append(s)
-                gate_info['hidden'][i_h] = np.zeros((shape))
-                gate_info['cell'][i_h] = np.zeros((shape))
-            gate_info['hidden'][i_h][t] = hidden_state
-            gate_info['cell'][i_h][t] = cell_state
-
-
-        for i_g,gate in enumerate(gates):
-            input_gate = gate[0].cpu().data.numpy()
-            forget_gate = gate[1].cpu().data.numpy()
-            if average:
-                input_gate = np.mean(hidden_state,axis=1)
-                forget_gate = np.mean(forget_gate,axis=1)
-            if i_g not in gate_info['forget'].keys():
-                shape = [T]
-                for s in forget_gate.shape:
-                    shape.append(s)
-                gate_info['input'][i_g] = np.zeros((shape))
-                gate_info['forget'][i_g] = np.zeros((shape))
-            gate_info['forget'][i_g][t] = forget_gate
-            gate_info['input'][i_g][t] = input_gate
-
-    else:
-        for i_h,h in enumerate(hidden):
-            hidden_state = h.cpu().data.numpy()
-            if average:
-                hidden_state = np.mean(hidden_state,axis=1)
-            if i_h not in gate_info['hidden'].keys():
-                shape = [T]
-                for s in hidden_state.shape:
-                    shape.append(s)
-                gate_info['hidden'][i_h] = np.zeros((shape))
-            gate_info['hidden'][i_h][t] = hidden_state
-
-        for i_g, gate in enumerate(gates):
-            reset_gate = gate[0].cpu().data.numpy()
-            update_gate = gate[1].cpu().data.numpy()
-            if average:
-                reset_gate = np.mean(reset_gate,axis=1)
-                update_gate = np.mean(update_gate,axis=1)
-            if i_g not in gate_info['update'].keys():
-                shape = [T]
-                for s in update_gate.shape:
-                    shape.append(s)
-                gate_info['update'][i_g] = np.zeros((shape))
-                gate_info['reset'][i_g] = np.zeros((shape))
-            gate_info['update'][i_g][t] = update_gate
-            gate_info['reset'][i_g][t] = reset_gate
-
-    return gate_info
-
 def make_dir(dir):
     if not os.path.exists(dir):
         os.mkdir(dir)
-
-def adjust_learning_rate(step, optimizer, epoch, lr):
-    """Sets the learning rate to the initial LR decayed by 10 every step epochs"""
-    new_lr = lr * (0.1 ** (epoch // step))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = new_lr
-    return new_lr
 
 def check_parallel(encoder_dict,decoder_dict):
 	# check if the model was trained using multiple gpus
@@ -102,10 +33,7 @@ def check_parallel(encoder_dict,decoder_dict):
 
 def get_base_params(args, model):
     b = []
-
-    if 'drn' in args.base_model:
-        b.append(model.base)
-    elif 'vgg' in args.base_model:
+    if 'vgg' in args.base_model:
         b.append(model.base.features)
     else:
         b.append(model.base.conv1)
@@ -199,12 +127,6 @@ def get_skip_dims(model_name):
         skip_dims_in = [512,256,128,64,64]
     elif model_name =='vgg16':
         skip_dims_in = [512,512,256,128,64]
-    elif model_name in ['drn_c_26','drn_c_42']:
-        skip_dims_in = [512,512,512,256,128]
-    elif model_name == 'drn_c_58':
-        skip_dims_in = [512,512,2048,1024,512]
-    elif model_name == 'drn_d_22':
-        skip_dims_in = [512,256,128,64,32]
 
     return skip_dims_in
 
@@ -279,19 +201,12 @@ def init_visdom(args,viz):
         mviz_true[i] = viz.heatmap(X=np.zeros((args.imsize,args.imsize)),
                                    opts=dict(title='True mask t'))
 
-    if args.use_feedback:
-        mviz_prev = {}
-        for i in range(args.maxseqlen):
-            mviz_prev[i] = viz.heatmap(X=np.zeros((args.imsize,args.imsize)),
-                                       opts=dict(title='Previous mask t'))
-    else:
-        mviz_prev = None
 
     image_lot = viz.image(np.ones((3,args.imsize,args.imsize)),
                         opts=dict(title='image'))
 
 
-    return lot, elot, mviz_pred, mviz_true, mviz_prev, image_lot
+    return lot, elot, mviz_pred, mviz_true, image_lot
 
 def outs_perms_to_cpu(args,outs,true_perm,h,w):
     # ugly function that turns contents of torch variables to numpy
@@ -314,11 +229,5 @@ def outs_perms_to_cpu(args,outs,true_perm,h,w):
     y_class_perm = y_class_perm.cpu().numpy()
 
     out_classes = np.argmax(out_classes,axis=-1)
-    if args.use_feedback:
-        prev_masks = outs[2]
-        prev_masks = prev_masks.view(prev_masks.size(0),prev_masks.size(1),h,w)
-        prev_masks = prev_masks.cpu().numpy()
 
-        return out_masks, out_classes, y_mask_perm, y_class_perm, prev_masks
-    else:
-        return out_masks, out_classes, y_mask_perm, y_class_perm, None
+    return out_masks, out_classes, y_mask_perm, y_class_perm

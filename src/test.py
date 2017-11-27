@@ -1,6 +1,6 @@
 from args import get_parser
 from utils.hungarian import match, softIoU
-from utils.utils import get_optimizer, batch_to_var, make_dir, load_checkpoint, package_states
+from utils.utils import get_optimizer, batch_to_var, make_dir, load_checkpoint
 import torch
 import numpy as np
 from torch.autograd import Variable
@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 
 torch.backends.cudnn.benchmark = True
 
-def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class, save_gates = False, average = False):
+def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class):
 
     """
     Runs forward, computes loss and (if train mode) updates parameters
@@ -30,15 +30,6 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class, save_gat
     out_masks_flat = []
     out_classes = []
     out_stops = []
-    if hasattr(args, 'rnn_type'):
-        rnn_type = args.rnn_type
-    else:
-        rnn_type = 'lstm'
-    if save_gates and rnn_type == 'lstm':
-        gate_info = {'hidden': {}, 'cell': {}, 'forget': {}, 'input': {}}
-    elif save_gates and rnn_type == 'gru':
-        gate_info = {'hidden': {}, 'update': {}, 'reset': {}}
-
     encoder.eval()
     decoder.eval()
 
@@ -57,12 +48,7 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class, save_gat
     scores = torch.zeros(y_mask.size(0),args.gt_maxseqlen,args.maxseqlen)
     # loop over sequence length and get predictions
     for t in range(0, T):
-        if save_gates:
-
-            out_mask, out_class, out_stop, hidden, gates = decoder(feats, hidden, prev_mask,save_gates)
-            gate_info = package_states(gate_info, hidden,gates, T, t, rnn_type, average)
-        else:
-            out_mask, out_class, out_stop, hidden = decoder(feats, hidden, prev_mask)
+        out_mask, out_class, out_stop, hidden = decoder(feats, hidden)
         upsample_match = torch.nn.UpsamplingBilinear2d(size = (x.size()[-2],x.size()[-1]))
         out_mask = upsample_match(out_mask)
         out_mask_flat = out_mask.view(out_mask.size(0), -1)
@@ -82,27 +68,12 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class, save_gat
         c = c.view(sw_mask.size(0),-1)
         scores[:,:,t] = c.cpu().data
 
-        if args.use_feedback:
-
-            feed_mask = torch.sigmoid(out_mask_flat)
-            feed_mask = feed_mask.cpu().data.numpy()
-            feed_mask = (feed_mask > args.mask_th).astype("uint8")
-            feed_mask = torch.from_numpy(feed_mask).float()
-            prev_mask = (feed_mask.byte() | prev_mask.data.cpu().byte()).float()
-            prev_mask = Variable(prev_mask)
-            # reshaping for conv layers
-            prev_mask = Variable(torch.zeros(y_mask.size(0),1,x.size()[-2],x.size()[-1]),requires_grad=False)
-            if args.use_gpu:
-                prev_mask = prev_mask.cuda()
-            prev_masks.append(prev_mask)
         # get predictions in list to concat later
         out_masks.append(out_mask)
         out_masks_flat.append(out_mask_flat)
         out_classes.append(out_class)
         out_stops.append(out_stop)
     # concat all outputs into single tensor to compute the loss
-    if args.use_feedback:
-        prev_masks = torch.cat(prev_masks,1).view(prev_mask.size(0),len(prev_masks),-1)
     out_masks = torch.cat(out_masks,1)
     out_classes = torch.cat(out_classes,1).view(out_class.size(0),len(out_classes),-1)
     out_stops = torch.cat(out_stops,1).view(out_stop.size(0),len(out_stops),-1)
@@ -130,12 +101,5 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class, save_gat
         y_mask_perm = y_mask_perm.cuda()
         y_class_perm = y_class_perm.cuda()
 
-    if args.use_feedback:
-        outs = [torch.sigmoid(out_masks).data, out_classes.data, prev_masks.data]
-    else:
-        outs = [torch.sigmoid(out_masks).data, out_classes.data]
-
-    if save_gates:
-        return outs, [y_mask_perm.data,y_class_perm.data], torch.sigmoid(out_stops).data, gate_info
-    else:
-        return outs, [y_mask_perm.data,y_class_perm.data], torch.sigmoid(out_stops).data
+    outs = [torch.sigmoid(out_masks).data, out_classes.data]
+    return outs, [y_mask_perm.data,y_class_perm.data], torch.sigmoid(out_stops).data

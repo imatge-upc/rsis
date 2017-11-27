@@ -1,4 +1,4 @@
-# Recurrent Instance-Aware Semantic Segmentation
+# Recurrent Neural Networks for Semantic Instance Segmentation
 
 Code supporting the paper:
 
@@ -12,7 +12,7 @@ If you find it useful, please consider citing !
 - Clone the repo:
 
 ```shell
-git clone https://github.com/amaiasalvador/riass.git
+git clone https://github.com/imatge-upc/rsis.git
 ```
 
 - Install requirements ```pip install -r requirements.txt``` 
@@ -65,6 +65,13 @@ python src/dataloader/pascal_precompute.py --make_cocofile --split train --pasca
 
 You must run this three times for the different splits (train, val and test).
 
+### CVPPP
+
+TODO: Add instructions
+
+### Cityscapes
+
+TODO: Add instructions
 
 ## Training
 

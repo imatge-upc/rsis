@@ -27,7 +27,6 @@ class MyDataset(data.Dataset):
 
 
         self.max_seq_len = args.gt_maxseqlen
-        self.predict_eos_mask = args.predict_eos_mask
         self.classes = []
         self.imsize = imsize
         self.augment = augment
@@ -71,17 +70,13 @@ class MyDataset(data.Dataset):
         # back to numpy to extract separate instances from transformed mask arrays
         seg = seg.numpy().squeeze()
         ins = ins.numpy().squeeze()
+        
+        target = self.sequence_from_masks(ins,seg)
 
-        # flag to return semantic segmentation as is
-        if not self.sseg:
-            target = self.sequence_from_masks(ins,seg)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
 
-            if self.target_transform is not None:
-                target = self.target_transform(target)
-
-            return img, target
-        else:
-            return img, seg
+        return img, target
 
     def __len__(self):
         return len(self.image_files)

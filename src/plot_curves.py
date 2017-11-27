@@ -75,43 +75,35 @@ def plot_curves_parser(txtfile, multi = True):
 
     t = np.arange(0, nb_epoch, 1)
 
-    if multi:
-        ax1.plot(t, train_losses['total'][0:nb_epoch], 'r-*')
-        ax1.plot(t, val_losses['total'], 'b-*')
-        ax1.set_ylabel('loss')
-        ax1.set_xlabel('epoch')
-        ax1.set_title('Total loss')
-        ax1.legend(['train_loss','val_loss'], loc='upper right')
+    ax1.plot(t, train_losses['total'][0:nb_epoch], 'r-*')
+    ax1.plot(t, val_losses['total'], 'b-*')
+    ax1.set_ylabel('loss')
+    ax1.set_xlabel('epoch')
+    ax1.set_title('Total loss')
+    ax1.legend(['train_loss','val_loss'], loc='upper right')
 
-        ax2.plot(t, train_losses['iou'][0:nb_epoch], 'r-*')
-        ax2.plot(t, val_losses['iou'], 'b-*')
-        ax2.set_ylabel('loss')
-        ax2.set_xlabel('epoch')
-        ax2.set_title('iou loss')
-        ax2.legend(['train_loss','val_loss'], loc='upper right')
+    ax2.plot(t, train_losses['iou'][0:nb_epoch], 'r-*')
+    ax2.plot(t, val_losses['iou'], 'b-*')
+    ax2.set_ylabel('loss')
+    ax2.set_xlabel('epoch')
+    ax2.set_title('iou loss')
+    ax2.legend(['train_loss','val_loss'], loc='upper right')
 
-        ax3.plot(t, train_losses['stop'][0:nb_epoch], 'r-*')
-        ax3.plot(t, val_losses['stop'], 'b-*')
-        ax3.set_ylabel('loss')
-        ax3.set_xlabel('epoch')
+    ax3.plot(t, train_losses['stop'][0:nb_epoch], 'r-*')
+    ax3.plot(t, val_losses['stop'], 'b-*')
+    ax3.set_ylabel('loss')
+    ax3.set_xlabel('epoch')
 
-        ax3.set_title('Stop loss')
-        ax3.legend(['train_loss','val_loss'], loc='upper right')
+    ax3.set_title('Stop loss')
+    ax3.legend(['train_loss','val_loss'], loc='upper right')
 
-        ax4.plot(t, train_losses['class'][0:nb_epoch], 'r-*')
-        ax4.plot(t, val_losses['class'], 'b-*')
-        ax4.set_ylabel('loss')
-        ax4.set_xlabel('epoch')
-        ax4.set_title('Class loss')
-        ax4.legend(['train_loss','val_loss'], loc='upper right')
-
-    else:
-        plt.plot(t,train_loss[0:nb_epoch],'r-*')
-        plt.plot(t,val_loss[0:nb_epoch],'b-*')
-        plt.xlabel('epoch')
-        plt.ylabel('loss')
-        plt.legend(['train_loss','val_loss'],loc='upper right')
-
+    ax4.plot(t, train_losses['class'][0:nb_epoch], 'r-*')
+    ax4.plot(t, val_losses['class'], 'b-*')
+    ax4.set_ylabel('loss')
+    ax4.set_xlabel('epoch')
+    ax4.set_title('Class loss')
+    ax4.legend(['train_loss','val_loss'], loc='upper right')
+    
     save_file = txtfile[:-4]+'.png'
     plt.savefig(save_file)
     print ("Figure saved in %s"%(save_file))
@@ -123,9 +115,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     model_dir = os.path.join('../models/', args.model_name)
-    if args.use_ss_model:
-        log_file = os.path.join(model_dir, 'train_ss.log')
-    else:
-        log_file = os.path.join(model_dir, args.log_file)
+    log_file = os.path.join(model_dir, args.log_file)
 
-    plot_curves_parser(log_file, multi=not args.use_ss_model)
+    plot_curves_parser(log_file)

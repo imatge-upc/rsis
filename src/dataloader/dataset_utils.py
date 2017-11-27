@@ -8,8 +8,6 @@ def get_dataset(args, split, image_transforms = None, augment = False, sseg = Fa
 
     if args.dataset =='pascal':
         from pascal import PascalVOC as MyChosenDataset
-    elif args.dataset == 'coco':
-        from coco import MSCOCO as MyChosenDataset
     elif args.dataset == 'cityscapes':
         from cityscapes import CityScapes as MyChosenDataset
     elif args.dataset == 'leaves':
@@ -58,7 +56,7 @@ def flip_crop(img,ins,seg,flip=True,crop=True,imsize=256):
     if crop:
         img, ins, seg = random_crop([img,ins,seg],(imsize,imsize), (h,w))
     return img, ins, seg
-    
+
 
 def pascal_palette():
 
