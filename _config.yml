@@ -14,10 +14,10 @@ markdown: kramdown
 
 
 ### content configuration ###
-title:       "Recurrent Instance-Aware Semantic Segmentation"
+title:       "Recurrent Neural Networks for Semantic Instance Segmentation"
 keywords:    "segmentation, recurrent, computer vision, deep learning, end-to-end"
-description: "End-to-end recurrent instance-aware semantc segmentation"
-source_link: "https://github.com/imatge-upc/dettention"
+description: "Project page for Recurrent Neural Networks for Semantic Instance Segmentation"
+source_link: "https://github.com/imatge-upc/rsis"
 favicon:     "img/favicon.ico"
 touch_icon:  "img/apple-touch-icon.png"
 # google_analytics_key: UA-49607422-1 ## put YOUR key here to enable tracking! (blank to disable)
