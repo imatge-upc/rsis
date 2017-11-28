@@ -14,7 +14,6 @@ class LeavesDataset(MyDataset):
                  target_transform=None,
                  augment=False,
                  split = 'train',
-                 sseg = False,
                  resize = False,
                  imsize = 256):
 
@@ -24,11 +23,9 @@ class LeavesDataset(MyDataset):
         self.classes = CLASSES
         self.num_classes = len(self.classes)
         self.max_seq_len = args.gt_maxseqlen
-        self.predict_eos_mask = args.predict_eos_mask
         self.image_dir = os.path.join(args.leaves_dir, 'A1')
         self.transform = transform
         self.target_transform = target_transform
-        self.sseg = sseg
         self.batch_size = args.batch_size
         if self.batch_size == 1:
             self.crop = False

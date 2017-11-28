@@ -22,7 +22,6 @@ class PascalVOC(MyDataset):
                  target_transform=None,
                  augment=False,
                  split = 'train',
-                 sseg = False,
                  resize = False,
                  imsize = 256):
 
@@ -35,11 +34,9 @@ class PascalVOC(MyDataset):
         self.classes = CLASSES
         self.num_classes = len(self.classes)
         self.max_seq_len = args.gt_maxseqlen
-        self.predict_eos_mask = args.predict_eos_mask
         self.image_dir = os.path.join(args.pascal_dir, 'JPEGImages')
         self.transform = transform
         self.target_transform = target_transform
-        self.sseg = sseg
         self.batch_size = args.batch_size
         if self.batch_size == 1:
             self.crop = False
@@ -60,7 +57,6 @@ class PascalVOC(MyDataset):
         self.imsize = imsize
         self.resize = resize
         self.masks_dir = os.path.join(args.pascal_dir, 'ProcMasks')
-        self.deeplab_coco_weights = args.use_coco_weights
         splits_dir = os.path.join(args.pascal_dir, 'ImageSets/Segmentation')
         split_f = os.path.join(splits_dir, split+'.txt')
 

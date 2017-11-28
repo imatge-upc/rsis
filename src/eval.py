@@ -50,7 +50,6 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
         if 'ignore' in ann:
             if ann['ignore']==1:
                 continue
-        #display_txt = "%d: %s. %.2f"%(i, ann['category_name'],ann['score'])
         display_txt = ann['category_name']
         if display_txt == 'motorbike':
             display_txt = 'motor'
@@ -113,13 +112,10 @@ def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
                                         [float(height)/pred_mask.shape[0],
                                         float(width)/pred_mask.shape[1],1],
                                         order=1)
-    #pred_mask = resize(pred_mask.reshape([args.D, args.D, 1]), height, width)
-    #th_ = (np.max(pred_mask) - np.min(pred_mask))/2
-    #th = min(args.mask_th,th_)
+
     th = args.mask_th
 
     segmentation = (pred_mask > th).astype("uint8")
-    #segmentation = binary_fill_holes(segmentation).astype("uint8")
     if ignore_pixels is not None:
         segmentation[ignore_pixels==1] = 0
     if np.sum(segmentation) < args.min_size*height*width:
@@ -127,7 +123,6 @@ def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
 
     segmentation = mask.encode(np.asfortranarray(segmentation.reshape([height,width,1])))[0]
     segmentation_raw = (pred_mask > th).astype("uint8")
-    #segmentation_raw = binary_fill_holes(segmentation_raw).astype("uint8")
     segmentation_raw = mask.encode(np.asfortranarray(segmentation_raw.reshape([height,width,1])))[0]
     return segmentation, is_valid, segmentation_raw
 
@@ -237,7 +232,6 @@ class Evaluate():
             self.colors.append(c)
 
         encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name)
-        #load_args.base_model = args.base_model
         self.encoder = FeatureExtractor(load_args)
         self.decoder = RSIS(load_args)
 
@@ -261,7 +255,6 @@ class Evaluate():
     def _create_json(self):
 
         predictions = list()
-        argmax_preds = {}
         acc_samples = 0
         print "Creating annotations..."
 
@@ -281,12 +274,6 @@ class Evaluate():
             w = x.size()[-1]
             h = x.size()[-2]
             out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
-            if self.args.use_gt_cats:
-                out_classes = y_class[:,0:self.args.maxseqlen]
-
-            if self.args.use_gt_masks:
-                out_masks = y_mask[:,0:self.args.maxseqlen]
-                #out_classes = np.argmax(out_scores,axis=-1)
             for s in range(out_masks.shape[0]):
                 this_pred = list()
                 sample_idx = self.sample_list[s+acc_samples]
@@ -316,7 +303,6 @@ class Evaluate():
                         break
                     objectness = stop_scores[s][i][0]
                     if objectness < args.stop_th:
-                        #reached_end = True
                         continue
                     pred_mask = out_masks[s][i]
                     # store class with max confidence for display
@@ -334,28 +320,15 @@ class Evaluate():
                             # ignore eos
                             continue
 
-                        if not self.use_cats:
-                            if not cls_id == max_class:
-                                continue
-                        if not self.args.use_gt_cats:
-                            pred_class_score = out_scores[s][i][cls_id]
-                            pred_class_score_mod = pred_class_score*objectness
-                        else:
-                            if not cls_id == max_class:
-                                continue
-                            else:
-                                pred_class_score = 1
-
-                        if self.args.use_gt_stop:
-                            if y_class[s][i] == 0:
-                                continue
+                        pred_class_score = out_scores[s][i][cls_id]
+                        pred_class_score_mod = pred_class_score*objectness
 
                         ann = create_annotation(self.args, sample_idx, pred_mask,
                                                 cls_id, pred_class_score_mod,
                                                 self.class_names,is_valid)
                         if ann is not None:
                             if self.dataset == 'leaves':
-                                if objectness > args.class_th:
+                                if objectness > args.stop_th:
                                     this_pred.append(ann)
                             else:
                                 # for display we only take the mask with max confidence
@@ -364,16 +337,8 @@ class Evaluate():
                                                             cls_id, pred_class_score_mod,
                                                             self.class_names,is_valid)
                                     this_pred.append(ann_save)
-                                    objectness_scores.append(objectness)
-                                    class_scores.append(pred_class_score)
 
                             predictions.append(ann)
-                argmax_preds[sample_idx] = {}
-                argmax_preds[sample_idx]['anns'] = this_pred
-                argmax_preds[sample_idx]['width'] = im.shape[1]
-                argmax_preds[sample_idx]['height'] = im.shape[0]
-                argmax_preds[sample_idx]['objectness'] = objectness_scores
-                argmax_preds[sample_idx]['class'] = class_scores
 
                 if self.display:
                     figures_dir = os.path.join('../models',args.model_name, args.model_name+'_figs_' + args.eval_split)
@@ -396,8 +361,6 @@ class Evaluate():
 
             acc_samples+=np.shape(out_masks)[0]
 
-        with open(os.path.join('../models',args.model_name,'argmax_preds_'+args.eval_split+'.pkl'),'wb') as f:
-            pickle.dump(argmax_preds,f,protocol=pickle.HIGHEST_PROTOCOL)
         return predictions
 
     def run_eval(self):

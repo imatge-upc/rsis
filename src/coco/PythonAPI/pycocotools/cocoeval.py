@@ -458,7 +458,7 @@ class COCOeval:
             stats[3] = _summarize(1, iouThr=.7, maxDets=self.params.maxDets[2])
             stats[4] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
             stats[5] = _summarize(1, iouThr=.8, maxDets=self.params.maxDets[2])
-            stats[6] = _summarize(1, iouThr=.89, maxDets=self.params.maxDets[2])
+            stats[6] = _summarize(1, maxDets=self.params.maxDets[1])
             stats[7] = _summarize(0, maxDets=self.params.maxDets[1])
             stats[8] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[0])
             stats[9] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[1])

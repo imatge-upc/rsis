@@ -76,19 +76,7 @@ class RSIS(nn.Module):
 
     def __init__(self, args):
         super(RSIS,self).__init__()
-
-        if hasattr(args, 'rnn_type'):
-            self.rnn_type = args.rnn_type
-        else:
-            self.rnn_type = 'lstm'
-
-        if hasattr(args, 'conv_start'):
-            self.conv_start = args.conv_start
-        else:
-            self.conv_start = 0
         skip_dims_in = get_skip_dims(args.base_model)
-        self.input_dim = skip_dims_in[0]
-        self.input_size = args.imsize
         self.hidden_size = args.hidden_size
         self.num_classes = args.num_classes
         self.kernel_size = args.kernel_size
@@ -97,7 +85,6 @@ class RSIS(nn.Module):
         self.dropout = args.dropout
         self.dropout_stop = args.dropout_stop
         self.dropout_cls = args.dropout_cls
-        self.batchnorm = args.batchnorm
         self.skip_mode = args.skip_mode
 
         # convlstms have decreasing dimension as width and height increase
@@ -119,7 +106,6 @@ class RSIS(nn.Module):
             clstm_i = ConvLSTMCell(args, clstm_in_dim, skip_dims_out[i],self.kernel_size, padding = padding)
             self.clstm_list.append(clstm_i)
 
-        #self.last_bn = nn.BatchNorm2d(skip_dims_out[-1])
         self.conv_out = nn.Conv2d(skip_dims_out[-1], 1,self.kernel_size, padding = padding)
 
         # calculate the dimensionality of classification vector
@@ -130,12 +116,8 @@ class RSIS(nn.Module):
         for sk in skip_dims_out:
             fc_dim+=sk
 
-        #conv_stop_in = fc_dim + 1 if args.use_feedback else fc_dim
         self.fc_class = nn.Linear(fc_dim,self.num_classes)
         self.fc_stop = nn.Linear(fc_dim,1)
-        # classification branch
-        #self.conv_class = nn.Conv2d(fc_dim,self.num_classes,self.kernel_size,padding=padding)
-        #self.conv_stop = nn.Conv2d(conv_stop_in,1,1,padding=0)
 
     def forward(self, skip_feats, prev_hidden_list):
 
@@ -159,8 +141,6 @@ class RSIS(nn.Module):
                 hidden = nn.Dropout2d(self.dropout)(hidden)
 
             side_feats.append(nn.MaxPool2d(clstm_in.size()[2:])(hidden))
-            #pool_side_feats = nn.AdaptiveMaxPool2d(output_size=skip_feats[0].size()[2:])
-            #side_feats.append(pool_side_feats(hidden))
 
             # apply skip connection
             if i < len(skip_feats):
@@ -184,7 +164,6 @@ class RSIS(nn.Module):
                 hidden = self.upsample(hidden)
                 clstm_in = hidden
 
-        #clstm_in = self.last_bn(clstm_in)
         out_mask = self.conv_out(clstm_in)
         # classification branch
         side_feats = torch.cat(side_feats,1).squeeze()
@@ -198,8 +177,6 @@ class RSIS(nn.Module):
         else:
             stop_feats = side_feats
         stop_probs = self.fc_stop(stop_feats)
-        #class_feats = nn.AdaptiveMaxPool2d(1)(class_feats).squeeze()
-        #stop_probs = nn.AdaptiveMaxPool2d(1)(stop_probs).squeeze().view(-1,1)
 
         # the log is computed in the objective function
         class_probs = nn.Softmax()(class_feats)

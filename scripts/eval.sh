@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+srun --gres=gpu:1,gmem:11G --mem=15G python eval.py -model_name rsis-pascal -batch_size 22 -dataset pascal -num_classes 21 --resize -pascal_dir /work/asalvador/dev/data/dettention/datasets/VOCAug

@@ -14,7 +14,6 @@ class CityScapes(MyDataset):
                  target_transform=None,
                  augment=False,
                  split='train',
-                 sseg=False,
                  resize=False,
                  imsize = 256):
 
@@ -23,8 +22,6 @@ class CityScapes(MyDataset):
         self.classes = CLASSES
         self.num_classes = len(self.classes)
         self.max_seq_len = args.gt_maxseqlen
-        self.predict_eos_mask = args.predict_eos_mask
-
         self.image_files = glob.glob(os.path.join(args.cityscapes_dir, 'leftImg8bit', split, '*', '*.png'))
         self.ins_files = [w.replace('/leftImg8bit/', '/gtFine/') for w in self.image_files]
         self.ins_files = [w.replace('_leftImg8bit.png', '_gtFine_instanceIds.png') for w in self.ins_files]
@@ -33,7 +30,6 @@ class CityScapes(MyDataset):
 
         self.transform = transform
         self.target_transform = target_transform
-        self.sseg = sseg
         self.batch_size = args.batch_size
 
         self.crop = args.crop

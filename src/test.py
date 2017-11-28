@@ -34,17 +34,6 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class):
     decoder.eval()
 
     feats = encoder(x)
-
-    if args.use_feedback:
-        # previous mask to feed at first timestep is all 0s
-        prev_mask = Variable(torch.zeros(y_mask.size(0),1,x.size()[-2],x.size()[-1]),requires_grad=False)
-        if args.use_gpu:
-            prev_mask = prev_mask.cuda()
-        prev_masks = []
-        prev_masks.append(prev_mask)
-    else:
-        prev_mask = None
-
     scores = torch.zeros(y_mask.size(0),args.gt_maxseqlen,args.maxseqlen)
     # loop over sequence length and get predictions
     for t in range(0, T):

@@ -21,7 +21,6 @@ class MyDataset(data.Dataset):
                  target_transform=None,
                  augment=False,
                  split = 'train',
-                 sseg = False,
                  resize = False,
                  imsize = 256):
 
@@ -70,7 +69,7 @@ class MyDataset(data.Dataset):
         # back to numpy to extract separate instances from transformed mask arrays
         seg = seg.numpy().squeeze()
         ins = ins.numpy().squeeze()
-        
+
         target = self.sequence_from_masks(ins,seg)
 
         if self.target_transform is not None:
@@ -140,9 +139,6 @@ class MyDataset(data.Dataset):
             gt_classes[total_num_instances:] = 0
             gt_seg[total_num_instances:,:] = np.zeros((h*w,))
             sample_weights_class[total_num_instances] = 1
-            if self.predict_eos_mask:
-                sample_weights_mask[total_num_instances] = 1
-
         targets = np.concatenate((gt_seg,gt_classes),axis=1)
         targets = np.concatenate((targets,sample_weights_mask),axis=1)
         targets = np.concatenate((targets,sample_weights_class),axis=1)

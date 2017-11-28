@@ -4,7 +4,7 @@ import torch
 from transforms.transforms import random_crop
 import random
 
-def get_dataset(args, split, image_transforms = None, augment = False, sseg = False,imsize = 256):
+def get_dataset(args, split, image_transforms = None, augment = False,imsize = 256):
 
     if args.dataset =='pascal':
         from pascal import PascalVOC as MyChosenDataset
@@ -20,7 +20,6 @@ def get_dataset(args, split, image_transforms = None, augment = False, sseg = Fa
                             target_transform = None,
                             augment = augment,
                             resize = args.resize,
-                            sseg = sseg,
                             imsize = imsize)
     return dataset
 

@@ -1,3 +1,13 @@
+# TO DO:
+
+- Check CPU compatibility
+- Visdom compatibility
+- Check Pascal Database generation
+- Database instructions for Cityscapes and CVPPP
+- Train/eval scripts for the three datasets
+- Release models
+- Create notebook with demo
+
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
 Code supporting the paper:

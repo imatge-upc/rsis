@@ -1,6 +1,4 @@
 from torchvision.models.resnet import BasicBlock, Bottleneck, ResNet
-from deeplab import WideBasicBlock, WideBottleneck, WideResNet
-
 from torchvision.models.vgg import VGG, make_layers
 import torch.nn as nn
 import math

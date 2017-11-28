@@ -298,7 +298,6 @@ def trainIters(args):
     # keep track of the number of batches in each epoch for continuity when plotting curves
     num_batches = {'train': 0, 'val': 0}
     for e in range(args.max_epoch):
-        print(np.random.uniform(-1, 1))
         if e == 0 or args.multiscale:
             loaders, class_names = init_dataloaders(args)
         print "Epoch", e + epoch_resume
@@ -410,8 +409,7 @@ def trainIters(args):
 
             else:
                 mt = np.mean(epoch_losses[split]['total'])
-
-            #mt = np.mean(epoch_losses[split]['total'])
+            
             mi = np.mean(epoch_losses[split]['iou'])
             mc = np.mean(epoch_losses[split]['class'])
             mx = np.mean(epoch_losses[split]['stop'])

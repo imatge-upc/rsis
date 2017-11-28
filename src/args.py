@@ -17,7 +17,7 @@ def get_parser():
                         'activated (eg if you stop training for whatever reason '
                         'at epoch 15, set epoch_resume to 15)'))
     parser.add_argument('-seed', dest='seed',default = 123, type=int)
-    parser.add_argument('-batch_size', dest='batch_size', default = 32, type=int)
+    parser.add_argument('-batch_size', dest='batch_size', default = 28, type=int)
     parser.add_argument('-lr', dest='lr', default = 1e-3,type=float)
     parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-6,type=float)
     parser.add_argument('-optim_cnn', dest='optim_cnn', default = 'adam',
@@ -113,7 +113,7 @@ def get_parser():
     parser.add_argument('-hidden_size', dest='hidden_size', default = 128, type=int)
     parser.add_argument('-kernel_size', dest='kernel_size', default = 3, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
-    parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.5, type=float)
+    parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.0, type=float)
     parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.0, type=float)
 
     # dataset parameters
@@ -133,17 +133,14 @@ def get_parser():
     parser.add_argument('-num_workers', dest='num_workers', default = 4, type=int)
 
     # testing
-    parser.add_argument('-eval_split',dest='eval_split', default='val')
+    parser.add_argument('-eval_split',dest='eval_split', default='test')
     parser.add_argument('-mask_th',dest='mask_th', default=0.5, type=float)
     parser.add_argument('-stop_th',dest='stop_th', default=0.5, type=float)
+    parser.add_argument('-class_th',dest='class_th', default=0.5, type=float)
     parser.add_argument('-max_dets',dest='max_dets', default=100, type=int)
     parser.add_argument('-min_size',dest='min_size', default=0.001, type=float)
     parser.add_argument('-cat_id',dest='cat_id', default=-1,type=int)
     parser.add_argument('--ignore_cats',dest='use_cats', action='store_false')
-    parser.add_argument('--use_gt_cats',dest='use_gt_cats', action='store_true')
-    parser.add_argument('--use_gt_masks',dest='use_gt_masks', action='store_true')
-    parser.add_argument('--use_gt_stop',dest='use_gt_stop', action='store_true')
-    parser.add_argument('-class_th',dest='class_th', default=0.5, type=float)
     parser.add_argument('--display', dest='display', action='store_true')
     parser.add_argument('--no_display_text', dest='no_display_text', action='store_true')
     parser.add_argument('--all_classes',dest='all_classes', action='store_true')
