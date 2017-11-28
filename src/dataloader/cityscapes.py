@@ -31,6 +31,7 @@ class CityScapes(MyDataset):
         self.transform = transform
         self.target_transform = target_transform
         self.batch_size = args.batch_size
+        self.no_run_coco_eval = True
 
         self.crop = args.crop
         self.flip = augment
@@ -66,14 +67,14 @@ class CityScapes(MyDataset):
         ins = np.array(Image.open(ins_file))
         seg = ins.copy()/1000
 
-        ''' don't train for caravan and trailer '''
+        # don't train for caravan and trailer
         seg[seg == 29] = 0
         seg[seg == 30] = 0
 
-        ''' change ids, so that they start by id=1 '''
+        # change ids, so that they start by id=1 
         seg[seg > 0] -= 23
 
-        ''' change ids of 3 last classes, considering that we are not training for caravan and trailer '''
+        # change ids of 3 last classes, considering that we are not training for caravan and trailer 
         seg[seg == 8] = 6
         seg[seg == 9] = 7
         seg[seg == 10] = 8
@@ -81,12 +82,12 @@ class CityScapes(MyDataset):
         seg_aux = seg.copy()
         seg_aux[seg_aux > 0] = 1
 
-        ''' mask the instance map with those classes that are not being trained '''
+        # mask the instance map with those classes that are not being trained
         ins = ins*seg_aux
         ins[ins < 24000] = 0
         unique_ids = np.unique(ins)
 
-        ''' associate an individual id for each instance '''
+        associate an individual id for each instance
         for i in range(len(unique_ids)):
             ins[ins == unique_ids[i]] = i
 
