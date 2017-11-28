@@ -81,7 +81,7 @@ Download the training CVPPP dataset from their [website](https://www.plant-pheno
 
 ### Cityscapes
 
-Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). These are the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1). Extract the images and the labels inside the same directory, and that will be your args.cityscapes_dir.
+Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). Extract the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1) inside the same directory, and that will be your args.cityscapes_dir.
 
 ## Training
 
