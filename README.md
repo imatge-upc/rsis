@@ -77,11 +77,11 @@ You must run this three times for the different splits (train, val and test).
 
 ### CVPPP
 
-TODO: Add instructions
+Download the training CVPPP dataset from their [website](https://www.plant-phenotyping.org/datasets-download). For the testing set you will have to contact the organizers. In our case we just worked with the A1 dataset. Extract the A1 package into one folder and that will be your args.leaves_dir.
 
 ### Cityscapes
 
-TODO: Add instructions
+Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). These are the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1). Extract the images and the labels inside the same directory, and that will be your args.cityscapes_dir.
 
 ## Training
 
