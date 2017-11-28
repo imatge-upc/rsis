@@ -1,9 +1,3 @@
-# TO DO:
-
-- Check CPU compatibility
-- Visdom compatibility
-- Check Pascal Database generation
-
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
 Code supporting the paper:
