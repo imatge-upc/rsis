@@ -27,6 +27,7 @@ class LeavesDataset(MyDataset):
         self.transform = transform
         self.target_transform = target_transform
         self.batch_size = args.batch_size
+        self.no_run_coco_eval = True
         if self.batch_size == 1:
             self.crop = False
         else:
