@@ -3,8 +3,6 @@
 - Check CPU compatibility
 - Visdom compatibility
 - Check Pascal Database generation
-- Train/eval scripts for the three datasets
-- Release models
 
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
@@ -137,6 +135,3 @@ srun --gres=gpu:1,gmem:12G --mem=10G python train.py --visdom -port $UID -server
 - ```echo $UID``` to know which port you are using.
 - ssh tunnel (run this in local machine): ```ssh -L 8889:localhost:YOUR_UID -p2222 user@imatge.upc.edu```.
 - Navigate to ```localhost:8889``` in your browser locally.
-
-
-
