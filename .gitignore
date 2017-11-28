@@ -103,4 +103,3 @@ ENV/
 # savefiles
 *.t7
 *.log
-models/
