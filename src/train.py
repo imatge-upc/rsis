@@ -48,7 +48,7 @@ def init_dataloaders(args):
                                          num_workers=args.num_workers,
                                          drop_last=True)
         class_names = dataset.get_classes()
-    return loaders, dataset
+    return loaders, class_names
 
 
 def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
@@ -378,7 +378,6 @@ def trainIters(args):
                         for t in range(np.shape(out_masks)[1]):
                             mask_pred = out_masks[0, t]
                             mask_true = y_mask[0, t]
-
                             class_pred = class_names[out_classes[0, t]]
                             class_true = class_names[y_class[0, t]]
                             mask_pred = np.reshape(mask_pred, (x.shape[-2], x.shape[-1]))
@@ -409,7 +408,7 @@ def trainIters(args):
 
             else:
                 mt = np.mean(epoch_losses[split]['total'])
-            
+
             mi = np.mean(epoch_losses[split]['iou'])
             mc = np.mean(epoch_losses[split]['class'])
             mx = np.mean(epoch_losses[split]['stop'])

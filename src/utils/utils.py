@@ -169,13 +169,13 @@ def init_visdom(args,viz):
         )
     )
 
-    elot['xentr'] = viz.line(
+    elot['stop'] = viz.line(
         X=torch.zeros((1,)).cpu(),
         Y=torch.zeros((1,2)).cpu(),
         opts=dict(
             xlabel='Epoch',
             ylabel='Loss',
-            title='BCE Loss',
+            title='Stop Loss',
             legend = ['train','val']
         )
     )
