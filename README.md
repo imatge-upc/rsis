@@ -108,8 +108,8 @@ We provide bash scripts to display results and evaluate models for the three dat
 Download weights for models trained with:
 
 - [Pascal VOC 2012](https://mega.nz/#!988QkDZS!3Mnn_A3XnhynEfsfPGKDUAPRmAMtFqyIf_0xrxU0obU)
-- [Cityscapes]()
-- [CVPPP]()
+- [Cityscapes](https://mega.nz/#!UhEESZ4a!UByeXh91wncbmJu-UaKJgpoZF5_KkuWEveTRxaKIxAE)
+- [CVPPP](https://mega.nz/#!F5lBgJSD!DzOzaq6NBWPgLzVgPD1n9AmMmfNNmXLs0FguSUOhmO0)
 
 Extract and place the obtained folder under ```models``` directory. 
 You can then run ```eval.py``` with the downloaded model by setting ```args.model_name``` to the name of the folder.
