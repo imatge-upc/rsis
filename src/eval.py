@@ -372,30 +372,31 @@ class Evaluate():
         if self.dataset == 'pascal':
             cocoGT = self.coco.loadRes(self.gt_file)
         predictions = self._create_json()
+        
+        if not args.no_run_coco_eval:
+            cocoP = self.coco.loadRes(predictions)
+            cocoEval = COCOeval(cocoGT, cocoP, 'segm')
 
-        cocoP = self.coco.loadRes(predictions)
-        cocoEval = COCOeval(cocoGT, cocoP, 'segm')
+            cocoEval.params.maxDets = [1,args.max_dets,100]
+            cocoEval.params.useCats = args.use_cats
+            if not args.cat_id == -1:
+                cocoEval.params.catIds = [args.cat_id]
 
-        cocoEval.params.maxDets = [1,args.max_dets,100]
-        cocoEval.params.useCats = args.use_cats
-        if not args.cat_id == -1:
-            cocoEval.params.catIds = [args.cat_id]
+            cocoEval.params.imgIds = sorted(self.sample_list)
+            cocoEval.params.catIds = range(1, len(self.class_names))
 
-        cocoEval.params.imgIds = sorted(self.sample_list)
-        cocoEval.params.catIds = range(1, len(self.class_names))
-
-        print ("Results for all the classes together")
-        cocoEval.evaluate()
-        cocoEval.accumulate()
-        cocoEval.summarize()
-        if self.all_classes:
-            for actual_class in cocoEval.params.catIds:
-                print ("Testing class dataset_id: " + str(actual_class))
-                print ("Which corresponds to name: " + self.class_names[actual_class])
-                cocoEval.params.catIds = [actual_class]
-                cocoEval.evaluate()
-                cocoEval.accumulate()
-                cocoEval.summarize()
+            print ("Results for all the classes together")
+            cocoEval.evaluate()
+            cocoEval.accumulate()
+            cocoEval.summarize()
+            if self.all_classes:
+                for actual_class in cocoEval.params.catIds:
+                    print ("Testing class dataset_id: " + str(actual_class))
+                    print ("Which corresponds to name: " + self.class_names[actual_class])
+                    cocoEval.params.catIds = [actual_class]
+                    cocoEval.evaluate()
+                    cocoEval.accumulate()
+                    cocoEval.summarize()
 
 
 if __name__ == "__main__":
