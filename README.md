@@ -83,6 +83,7 @@ Download the training CVPPP dataset from their [website](https://www.plant-pheno
 
 Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). Extract the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1) into the same directory and point ```args.cityscapes_dir``` to it.
 
+
 ## Training
 
 - Train the model with ```python train.py -model_name model_name```. Checkpoints and logs will be saved under ```../models/model_name```. Other arguments can be passed as well.
@@ -102,6 +103,10 @@ Use ```-epoch_resume``` to specify the epoch in which training was stopped. This
 ## Evaluation
 
 We provide bash scripts to display results and evaluate models for the three datasets. You can find them under the ```scripts``` folder.
+
+In the case of cityscapes, the evaluation bash script will generate the results in the appropiate format to use the official evaluation [code](https://github.com/mcordts/cityscapesScripts). 
+
+For CVPPP, the evaluation bash script will generate the results in the appropiate format to use the evaluation scripts that are provided with the [dataset](https://www.plant-phenotyping.org/datasets-download).
 
 ## Pretrained models
 
