@@ -296,10 +296,9 @@ def trainIters(args):
             args.limit_seqlen_to = 2
 
     # keep track of the number of batches in each epoch for continuity when plotting curves
+    loaders, class_names = init_dataloaders(args)
     num_batches = {'train': 0, 'val': 0}
     for e in range(args.max_epoch):
-        if e == 0 or args.multiscale:
-            loaders, class_names = init_dataloaders(args)
         print "Epoch", e + epoch_resume
         # store losses in lists to display average since beginning
         epoch_losses = {'train': {'total': [], 'iou': [], 'stop': [], 'class': []},
