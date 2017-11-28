@@ -51,7 +51,7 @@ def test(args, encoder, decoder, x, y_mask, y_class, sw_mask, sw_class):
         y_pred_i = y_pred_i.repeat(1,y_mask.size(1),1)
         y_pred_i = y_pred_i.view(y_mask.size(0)*y_mask.size(1),y_mask.size(2))
         y_true_p = y_mask.view(y_mask.size(0)*y_mask.size(1),y_mask.size(2))
-        sw_mask_p = sw_mask.view(sw_mask.size(0)*sw_mask.size(1)).float()
+        sw_mask_p = sw_mask.contiguous().view(sw_mask.size(0)*sw_mask.size(1)).float()
 
         c = softIoU(y_true_p, y_pred_i)
         c = c.view(sw_mask.size(0),-1)

@@ -231,7 +231,8 @@ class Evaluate():
             c = inv_palette[i]
             self.colors.append(c)
 
-        encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name)
+        encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name,args.use_gpu)
+        load_args.use_gpu = args.use_gpu
         self.encoder = FeatureExtractor(load_args)
         self.decoder = RSIS(load_args)
 
@@ -372,7 +373,7 @@ class Evaluate():
         if self.dataset == 'pascal':
             cocoGT = self.coco.loadRes(self.gt_file)
         predictions = self._create_json()
-        
+
         if not args.no_run_coco_eval:
             cocoP = self.coco.loadRes(predictions)
             cocoEval = COCOeval(cocoGT, cocoP, 'segm')

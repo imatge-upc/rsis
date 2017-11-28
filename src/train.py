@@ -144,15 +144,19 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
         y_mask_perm = y_mask_perm.cuda()
         y_class_perm = y_class_perm.cuda()
 
-    sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:,0:t])).contiguous()
-    sw_class = Variable(torch.from_numpy(sw_class.data.cpu().numpy()[:,0:t])).contiguous()
+    sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:,0:t])).contiguous().float()
+    sw_class = Variable(torch.from_numpy(sw_class.data.cpu().numpy()[:,0:t])).contiguous().float()
 
     if args.use_gpu:
-        sw_mask = sw_mask.float().cuda()
-        sw_class = sw_class.float().cuda()
-
+        sw_mask = sw_mask.cuda()
+        sw_class = sw_class.cuda()
+    else:
+        out_classes = out_classes.contiguous()
+        out_masks = out_masks.contiguous()
+        y_class_perm = y_class_perm.contiguous()
+        y_mask_perm = y_mask_perm.contiguous()
     # all losses are masked with sw_mask except the stopping one, which has one extra position
-    loss_class = class_crit(y_class_perm.view(-1,1),out_classes.view(-1,out_classes.size()[-1]), sw_mask)
+    loss_class = class_crit(y_class_perm.view(-1,1),out_classes.view(-1,out_classes.size()[-1]), sw_mask.view(-1,1))
 
     loss_class = torch.mean(loss_class)
     loss_mask_iou = mask_siou(y_mask_perm.view(-1,y_mask_perm.size()[-1]),out_masks.view(-1,out_masks.size()[-1]), sw_mask.view(-1,1))
@@ -199,7 +203,7 @@ def trainIters(args):
 
     if args.resume:
         # will resume training the model with name args.model_name
-        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.model_name)
+        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.model_name,args.use_gpu)
 
         epoch_resume = load_args.epoch_resume
         encoder = FeatureExtractor(load_args)
@@ -212,7 +216,7 @@ def trainIters(args):
 
     elif args.transfer:
         # load model from args and replace last fc layer
-        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.transfer_from)
+        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.transfer_from,args.use_gpu)
         encoder = FeatureExtractor(load_args)
         decoder = RSIS(args)
         encoder_dict, decoder_dict = check_parallel(encoder_dict,decoder_dict)
@@ -277,8 +281,8 @@ def trainIters(args):
 
     crits = [mask_siou, class_xentropy, stop_xentropy]
     optims = [enc_opt, dec_opt]
-
-    torch.cuda.synchronize()
+    if args.use_gpu:
+        torch.cuda.synchronize()
     start = time.time()
 
     # vars for early stopping
@@ -392,7 +396,8 @@ def trainIters(args):
 
                     te = time.time() - start
                     print "iter %d:\ttotal:%.4f\tclass:%.4f\tiou:%.4f\tstop:%.4f\ttime:%.4f" % (batch_idx, mt, mc, mi, mx, te)
-                    torch.cuda.synchronize()
+                    if args.use_gpu:
+                        torch.cuda.synchronize()
                     start = time.time()
 
             num_batches[split] = batch_idx + 1
@@ -448,7 +453,7 @@ def trainIters(args):
             args.use_class_loss = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
             mt_val = -1
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name)
+            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
             encoder.load_state_dict(encoder_dict)
             decoder.load_state_dict(decoder_dict)
             enc_opt.load_state_dict(enc_opt_dict)
@@ -467,7 +472,7 @@ def trainIters(args):
             args.update_encoder = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
             mt_val = -1
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name)
+            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
             encoder.load_state_dict(encoder_dict)
             decoder.load_state_dict(decoder_dict)
             enc_opt.load_state_dict(enc_opt_dict)
@@ -487,7 +492,7 @@ def trainIters(args):
                 best_val_loss = 1000 # reset because adding a loss term will increase the total value
                 mt_val = -1
 
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name)
+            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
             encoder.load_state_dict(encoder_dict)
             decoder.load_state_dict(decoder_dict)
             enc_opt.load_state_dict(enc_opt_dict)

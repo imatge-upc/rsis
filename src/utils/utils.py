@@ -94,11 +94,17 @@ def save_checkpoint(args, encoder, decoder, enc_opt, dec_opt):
     # save parameters for future use
     pickle.dump(args, open(os.path.join('../models',args.model_name,'args.pkl'),'wb'))
 
-def load_checkpoint(model_name):
-    encoder_dict = torch.load(os.path.join('../models',model_name,'encoder.pt'))
-    decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'))
-    enc_opt_dict = torch.load(os.path.join('../models',model_name,'enc_opt.pt'))
-    dec_opt_dict = torch.load(os.path.join('../models',model_name,'dec_opt.pt'))
+def load_checkpoint(model_name,use_gpu=True):
+    if use_gpu:
+        encoder_dict = torch.load(os.path.join('../models',model_name,'encoder.pt'))
+        decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'))
+        enc_opt_dict = torch.load(os.path.join('../models',model_name,'enc_opt.pt'))
+        dec_opt_dict = torch.load(os.path.join('../models',model_name,'dec_opt.pt'))
+    else:
+        encoder_dict = torch.load(os.path.join('../models',model_name,'encoder.pt'), map_location=lambda storage, location: storage)
+        decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'), map_location=lambda storage, location: storage)
+        enc_opt_dict = torch.load(os.path.join('../models',model_name,'enc_opt.pt'), map_location=lambda storage, location: storage)
+        dec_opt_dict = torch.load(os.path.join('../models',model_name,'dec_opt.pt'), map_location=lambda storage, location: storage)
     # save parameters for future use
     args = pickle.load(open(os.path.join('../models',model_name,'args.pkl'),'rb'))
 
