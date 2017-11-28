@@ -3,10 +3,8 @@
 - Check CPU compatibility
 - Visdom compatibility
 - Check Pascal Database generation
-- Database instructions for Cityscapes and CVPPP
 - Train/eval scripts for the three datasets
 - Release models
-- Create notebook with demo
 
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
@@ -75,13 +73,15 @@ python src/dataloader/pascal_precompute.py --make_cocofile --split train --pasca
 
 You must run this three times for the different splits (train, val and test).
 
+Point ```args.pascal_dir``` to this folder.
+
 ### CVPPP
 
-Download the training CVPPP dataset from their [website](https://www.plant-phenotyping.org/datasets-download). For the testing set you will have to contact the organizers. In our case we just worked with the A1 dataset. Extract the A1 package into one folder and that will be your args.leaves_dir.
+Download the training CVPPP dataset from their [website](https://www.plant-phenotyping.org/datasets-download). In our case we just worked with the A1 dataset. Extract the A1 package and point ```args.leaves_dir``` to this folder.  To obtain the test set for evaluation you will have to contact the organizers.
 
 ### Cityscapes
 
-Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). Extract the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1) inside the same directory, and that will be your args.cityscapes_dir.
+Download the Cityscapes dataset from their [website](https://www.cityscapes-dataset.com/downloads/). Extract the [images](https://www.cityscapes-dataset.com/file-handling/?packageID=3) and the [labels](https://www.cityscapes-dataset.com/file-handling/?packageID=1) into the same directory and point ```args.cityscapes_dir``` to it.
 
 ## Training
 
@@ -101,10 +101,22 @@ Use ```-epoch_resume``` to specify the epoch in which training was stopped. This
 
 ## Evaluation
 
-Run ```python eval.py -model_name model_name -eval_split test``` to compute AP figures. The file will be saved in the model's folder. If you want to save figures with results, run the command with the ```--display```flag.
+We provide bash scripts to display results and evaluate models for the three datasets. You can find them under the ```scripts``` folder.
 
-There's also a ```test_ss.py``` script to visualize outputs of the semantic segmentation model trained with ```train_ss.py```.
+## Pretrained models
 
+Download weights for models trained with:
+
+- [Pascal VOC 2012](https://mega.nz/#!988QkDZS!3Mnn_A3XnhynEfsfPGKDUAPRmAMtFqyIf_0xrxU0obU)
+- [Cityscapes]()
+- [CVPPP]()
+
+Extract and place the obtained folder under ```models``` directory. 
+You can then run ```eval.py``` with the downloaded model by setting ```args.model_name``` to the name of the folder.
+
+## Contact
+
+For questions and suggestions use the issues section or send an e-mail to amaia.salvador@upc.edu
 
 ## Additional notes to GPI users	
 
@@ -121,7 +133,5 @@ srun --gres=gpu:1,gmem:12G --mem=10G python train.py --visdom -port $UID -server
 - ssh tunnel (run this in local machine): ```ssh -L 8889:localhost:YOUR_UID -p2222 user@imatge.upc.edu```.
 - Navigate to ```localhost:8889``` in your browser locally.
 
-## Contact
 
-For questions and suggestions use the issues section or send an e-mail to amaia.salvador@upc.edu
 
