@@ -60,12 +60,12 @@ python src/dataloader/pascalplus_gen.py --voc_dir /path/to/pascal --contours_dir
 - Precompute instance and semantic segmentation masks & ground truth files in COCO format:
 
 ```
-python src/dataloader/pascal_precompute.py --make_cocofile --split train --pascal_dir /path/to/merged
+python src/dataloader/pascal_precompute.py --split train --pascal_dir /path/to/merged
 ``` 
 
 You must run this three times for the different splits (train, val and test).
 
-Point ```args.pascal_dir``` to this folder.
+Point ```args.pascal_dir``` to ```/path/to/merged```.
 
 ### CVPPP
 
@@ -78,19 +78,12 @@ Download the Cityscapes dataset from their [website](https://www.cityscapes-data
 
 ## Training
 
-- Train the model with ```python train.py -model_name model_name```. Checkpoints and logs will be saved under ```../models/model_name```. Other arguments can be passed as well.
-- For convenience, scripts to train with typical parameters are provided under ```scripts/```.
+- Train the model with ```python train.py -model_name model_name```. Checkpoints and logs will be saved under ```../models/model_name```. 
+- Other arguments can be passed as well. For convenience, scripts to train with typical parameters are provided under ```scripts/```.
 - Visdom can be enabled to monitor training losses and outputs:
 	- First run the visdom server with```python -m visdom.server```.
 	- Run training with the ```--visdom``` flag. Navigate to ```localhost:8097``` to visualize training curves.
-- Plot loss curves at any time with ```python plot_curves.py -model_name model_name```. The same script works for plotting semantic segmentation loss curves if run with the flag ```--use_ss_model```.
-- You can resume training a model with the flag --resume:
-
-```
-python train.py -model_name model_name -epoch_resume 5
-```
-
-Use ```-epoch_resume``` to specify the epoch in which training was stopped. This is useful if some changes happen after a certain number of epochs (eg fine tuning the base model).
+- Plot loss curves at any time with ```python plot_curves.py -model_name model_name```.
 
 ## Evaluation
 
@@ -109,7 +102,7 @@ Download weights for models trained with:
 - [CVPPP](https://mega.nz/#!F5lBgJSD!DzOzaq6NBWPgLzVgPD1n9AmMmfNNmXLs0FguSUOhmO0)
 
 Extract and place the obtained folder under ```models``` directory. 
-You can then run ```eval.py``` with the downloaded model by setting ```args.model_name``` to the name of the folder.
+You can then run evaluation scripts with the downloaded model by setting ```args.model_name``` to the name of the folder.
 
 ## Contact
 
