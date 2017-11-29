@@ -83,8 +83,8 @@ def get_parser():
     parser.set_defaults(log_term=False)
     parser.add_argument('--visdom', dest='visdom', action='store_true')
     parser.set_defaults(visdom=False)
-    parser.add_argument('-port',dest='port',default=1061, type=int, help='visdom port')
-    parser.add_argument('-server',dest='server',default='http://c2', help='visdom server')
+    parser.add_argument('-port',dest='port',default=8097, type=int, help='visdom port')
+    parser.add_argument('-server',dest='server',default='http://localhost', help='visdom server')
 
     # loss weights
     parser.add_argument('-class_weight',dest='class_weight',default=0.1, type=float)
