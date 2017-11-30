@@ -123,7 +123,7 @@ def get_parser():
     parser.add_argument('-num_classes', dest='num_classes', default = 21, type=int)
     parser.add_argument('-dataset', dest='dataset', default = 'pascal',choices=['pascal','cityscapes', 'leaves'])
     parser.add_argument('-pascal_dir', dest='pascal_dir',
-                        default = '/work/asalvador/dev/data/dettention/datasets/VOCAug/')
+                        default = '/work/asalvador/dev/data/rsis/VOCAug/')
     parser.add_argument('-cityscapes_dir', dest='cityscapes_dir',
                         default='/gpfs/scratch/bsc31/bsc31429/CityScapes/')
     parser.add_argument('-leaves_dir', dest='leaves_dir',
