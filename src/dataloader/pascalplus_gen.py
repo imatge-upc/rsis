@@ -74,6 +74,8 @@ for split in ['train','val']:
             for i in np.unique(seg_object):
                 if i == 0:
                     continue
+                if i >= len(id_to_rgb)-1:
+                    break
                 class_ins = classes[i-1][0]
                 # encode class with corresponding RGB triplet
                 sem_seg[seg_object == i,0] = id_to_rgb[class_ins][0]
