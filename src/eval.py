@@ -192,7 +192,6 @@ class Evaluate():
 
         self.sample_list = dataset.get_sample_list()
         self.class_names = dataset.get_classes()
-        print args.pascal_dir
         if args.dataset =='pascal':
             self.gt_file = pickle.load(open(os.path.join(args.pascal_dir,'VOCGT_%s.pkl'%(self.split)),'rb'))
             self.key_to_anns = dict()

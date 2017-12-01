@@ -2,7 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 from args import get_parser
 from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint
-from modules.model import RIASS, FeatureExtractor
+from modules.model import RSIS, FeatureExtractor
 from test import test
 import scipy.misc
 from dataloader.dataset_utils import get_dataset
@@ -30,11 +30,7 @@ class Evaluate():
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
 
-        if args.use_coco_weights:
-            # when using coco weights transformations are handled within loader
-            image_transforms = None
-        else:
-            image_transforms = transforms.Compose([to_tensor,normalize])
+        image_transforms = transforms.Compose([to_tensor,normalize])
 
         dataset = get_dataset(args, self.split, image_transforms, augment=False, imsize=args.imsize)
 
@@ -52,7 +48,7 @@ class Evaluate():
         self.hidden_size = load_args.hidden_size
         self.args.nconvlstm = load_args.nconvlstm
         self.encoder = FeatureExtractor(load_args)
-        self.decoder = RIASS(load_args)
+        self.decoder = RSIS(load_args)
 
         if args.ngpus > 1 and args.use_gpu:
             self.decoder = torch.nn.DataParallel(self.decoder,device_ids=range(args.ngpus))
@@ -91,11 +87,11 @@ class Evaluate():
     def create_figures(self):
 
         acc_samples = 0
-        results_root_dir = os.path.join('../models', args.model_name, args.model_name + '_results_test')
+        results_root_dir = os.path.join('../models', args.model_name, args.model_name + '_results')
         make_dir(results_root_dir)
         results_dir = os.path.join(results_root_dir, 'A1')
         make_dir(results_dir)
-        print "Creating annotations for leaves validation..."
+        print "Creating annotations for leaves validation..."    
         for batch_idx, (inputs, targets) in enumerate(self.loader):
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
             out_masks, _, stop_probs = test(self.args, self.encoder, self.decoder, x)
@@ -112,11 +108,8 @@ class Evaluate():
                 img_masks = out_masks[sample]
 
                 instance_id = 0
-
                 class_scores = stop_probs[sample]
 
-                print('Start')
-                print(image_dir)
 
                 for time_step in range(self.T):
                     mask = img_masks[time_step].cpu().numpy()

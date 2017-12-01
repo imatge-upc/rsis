@@ -5,9 +5,9 @@ from args import get_parser
 from pycocotools.cocoeval import COCOeval
 from pycocotools.coco import COCO
 import pycocotools.mask
-from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint
+from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint, check_parallel
 from scipy.ndimage.measurements import center_of_mass
-from modules.model import RIASS, FeatureExtractor
+from modules.model import RSIS, FeatureExtractor
 from test import test
 from PIL import Image
 import scipy.misc
@@ -39,11 +39,7 @@ class Evaluate():
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
 
-        if args.use_coco_weights:
-            # when using coco weights transformations are handled within loader
-            image_transforms = None
-        else:
-            image_transforms = transforms.Compose([to_tensor,normalize])
+        image_transforms = transforms.Compose([to_tensor,normalize])
 
         dataset = get_dataset(args, self.split, image_transforms,augment=False)
 
@@ -56,13 +52,12 @@ class Evaluate():
         self.args = args
 
         encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name)
-        load_args.seg_checkpoint_path = args.seg_checkpoint_path
         self.args.use_feedback = load_args.use_feedback
         self.args.base_model = load_args.base_model
         self.hidden_size = load_args.hidden_size
         self.args.nconvlstm = load_args.nconvlstm
         self.encoder = FeatureExtractor(load_args)
-        self.decoder = RIASS(load_args)
+        self.decoder = RSIS(load_args)
 
         if args.ngpus > 1 and args.use_gpu:
             self.decoder = torch.nn.DataParallel(self.decoder,device_ids=range(args.ngpus))
@@ -129,34 +124,33 @@ class Evaluate():
 
                 instance_id = 0
 
-                class_scores = out_masks[sample]
+                class_scores = out_scores[sample]
                 stop_scores = stop_probs[sample]
+
 
                 for time_step in range(self.T):
                     mask = img_masks[time_step].cpu().numpy()
                     mask = (mask > args.mask_th)
 
-                    if args.keep_biggest_blob:
+                    h_mask = mask.shape[0]
+                    w_mask = mask.shape[1]
 
-                        h_mask = mask.shape[0]
-                        w_mask = mask.shape[1]
+                    mask = (mask > 0)
+                    labeled_blobs = measure.label(mask, background=0).flatten()
 
-                        mask = (mask > 0)
-                        labeled_blobs = measure.label(mask, background=0).flatten()
-
-                        # find the biggest one
-                        count = Counter(labeled_blobs)
-                        s = []
-                        max_num = 0
-                        for v, k in count.iteritems():
-                            if v == 0:
-                                continue
-                            if k > max_num:
-                                max_num = k
-                                max_label = v
-                        # build mask from the largest connected component
-                        segmentation = (labeled_blobs == max_label).astype("uint8")
-                        mask = segmentation.reshape([h_mask, w_mask]) * 255
+                    # find the biggest one
+                    count = Counter(labeled_blobs)
+                    s = []
+                    max_num = 0
+                    for v, k in count.iteritems():
+                        if v == 0:
+                            continue
+                        if k > max_num:
+                            max_num = k
+                            max_label = v
+                    # build mask from the largest connected component
+                    segmentation = (labeled_blobs == max_label).astype("uint8")
+                    mask = segmentation.reshape([h_mask, w_mask]) * 255
 
                     mask = scipy.misc.imresize(mask, [h, w])
                     class_scores_mask = class_scores[time_step].cpu().numpy()

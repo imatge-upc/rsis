@@ -87,7 +87,7 @@ class CityScapes(MyDataset):
         ins[ins < 24000] = 0
         unique_ids = np.unique(ins)
 
-        associate an individual id for each instance
+        # associate an individual id for each instance
         for i in range(len(unique_ids)):
             ins[ins == unique_ids[i]] = i
 
