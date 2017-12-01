@@ -264,17 +264,16 @@ class Evaluate():
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
             num_objects = np.sum(sw_mask.data.float().cpu().numpy(),axis=-1)
 
-            outs, true_perms, stop_probs =  test(self.args, self.encoder,
-                                                 self.decoder, x, y_mask,
-                                                 y_class, sw_mask,
-                                                 sw_class)
-            out_scores = outs[1]
+            out_masks, out_scores, stop_probs =  test(self.args, self.encoder,
+                                                 self.decoder, x)
+
             out_scores = out_scores.cpu().numpy()
             stop_scores = stop_probs.cpu().numpy()
-
+            out_masks = out_masks.cpu().numpy()
+            out_classes = np.argmax(out_scores,axis=-1)
             w = x.size()[-1]
             h = x.size()[-2]
-            out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
+            #out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
             for s in range(out_masks.shape[0]):
                 this_pred = list()
                 sample_idx = self.sample_list[s+acc_samples]

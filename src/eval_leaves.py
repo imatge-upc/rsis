@@ -98,7 +98,7 @@ class Evaluate():
         print "Creating annotations for leaves validation..."
         for batch_idx, (inputs, targets) in enumerate(self.loader):
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
-            outs, true_perms, stop_probs = test(self.args, self.encoder, self.decoder, x, y_mask, y_class, sw_mask, sw_class)
+            out_masks, _, stop_probs = test(self.args, self.encoder, self.decoder, x)
 
             for sample in range(self.batch_size):
                 sample_idx = self.sample_list[sample + acc_samples]
@@ -109,7 +109,7 @@ class Evaluate():
 
                 mask_sample = np.zeros([h, w])
                 sample_idx = sample_idx.split('/')[-1].split('.')[0]
-                img_masks = outs[0][sample]
+                img_masks = out_masks[sample]
 
                 instance_id = 0
 

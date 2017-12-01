@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from args import get_parser
 from pycocotools.cocoeval import COCOeval
 from pycocotools.coco import COCO
-import pycocotools.mask 
+import pycocotools.mask
 from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint
 from scipy.ndimage.measurements import center_of_mass
 from modules.model import RIASS, FeatureExtractor
@@ -110,7 +110,7 @@ class Evaluate():
         print "Creating annotations for cityscapes validation..."
         for batch_idx, (inputs, targets) in enumerate(self.loader):
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
-            outs, true_perms, stop_probs = test(self.args, self.encoder, self.decoder, x, y_mask, y_class, sw_mask, sw_class)
+            out_masks, out_scores, stop_probs = test(self.args, self.encoder, self.decoder, x)
 
             class_ids = [24, 25, 26, 27, 28, 31, 32, 33]
 
@@ -125,11 +125,11 @@ class Evaluate():
                 sample_idx = sample_idx.split('/')[-1].split('.')[0]
 
                 results_file = open(os.path.join(results_dir, sample_idx + '.txt'), 'w')
-                img_masks = outs[0][sample]
+                img_masks = out_masks[sample]
 
                 instance_id = 0
 
-                class_scores = outs[1][sample]
+                class_scores = out_masks[sample]
                 stop_scores = stop_probs[sample]
 
                 for time_step in range(self.T):
@@ -137,13 +137,13 @@ class Evaluate():
                     mask = (mask > args.mask_th)
 
                     if args.keep_biggest_blob:
-                    
+
                         h_mask = mask.shape[0]
                         w_mask = mask.shape[1]
-                    
+
                         mask = (mask > 0)
                         labeled_blobs = measure.label(mask, background=0).flatten()
-                    
+
                         # find the biggest one
                         count = Counter(labeled_blobs)
                         s = []
@@ -184,4 +184,3 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     E = Evaluate(args)
     E.create_figures()
-
