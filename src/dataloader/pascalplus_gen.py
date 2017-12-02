@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--contours_dir',
                     default = '../../data/dettention/datasets/benchmark_RELEASE/dataset/')
 parser.add_argument('--voc_dir', default = '../../data/dettention/datasets/VOC2012/')
-parser.add_argument('--vocplus_dir', default = '../../data/dettention/datasets/VOCAug2/', help='This folder will be created')
+parser.add_argument('--vocplus_dir', default = '../../data/rsis/VOCAug/', help='This folder will be created')
 parser.add_argument('--val_split', default = 0.10, type=int,help='Percentage of samples to use for validation')
 parser.add_argument('--force_gen', dest='force_gen', action='store_true')
 parser.add_argument('--nocopy', dest='copy', action='store_false')
@@ -65,17 +65,14 @@ for split in ['train','val']:
         seg_png = os.path.join(args.vocplus_dir,'SegmentationClass',name.rstrip()+'.png')
         obj_png = os.path.join(args.vocplus_dir,'SegmentationObject',name.rstrip()+'.png')
         if not os.path.isfile(seg_png) or not os.path.isfile(obj_png) or args.force_gen:
-            matfile = loadmat(os.path.join(args.contours_dir,'inst',name.rstrip()+'.mat'))
-            seg_object = matfile['GTinst']['Segmentation'][0][0]
-            matfile = loadmat(os.path.join(args.contours_dir,'cls',name.rstrip()+'.mat'))
-            classes = matfile['GTcls']['Segmentation'][0][0]
+            m = loadmat(os.path.join(args.contours_dir,'inst',name.rstrip()+'.mat'))['GTinst'][0][0]
+            seg_object = m[0]
+            classes = m[2]
             sem_seg = np.zeros((seg_object.shape[0],seg_object.shape[1],3),dtype=np.uint8)
             ins_seg = np.zeros((seg_object.shape[0],seg_object.shape[1],3),dtype=np.uint8)
             for i in np.unique(seg_object):
                 if i == 0:
                     continue
-                if i >= len(id_to_rgb)-1:
-                    break
                 class_ins = classes[i-1][0]
                 # encode class with corresponding RGB triplet
                 sem_seg[seg_object == i,0] = id_to_rgb[class_ins][0]
@@ -86,6 +83,8 @@ for split in ['train','val']:
                 ins_seg[seg_object == i,0] = id_to_rgb[i][0]
                 ins_seg[seg_object == i,1] = id_to_rgb[i][1]
                 ins_seg[seg_object == i,2] = id_to_rgb[i][2]
+                if i == 20:
+                    break
 
             imsave(seg_png, sem_seg)
             imsave(obj_png, ins_seg)
