@@ -1,12 +1,6 @@
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
-Code supporting the paper:
-
-```Amaia Salvador, Miriam Bellver, Manel Baradad, Ferran Marques, Jordi Torres and Xavier Giro-i-Nieto. Recurrent Neural Networks for Semantic Instance Segmentation```
-
-Download the pdf [here](https://github.com/imatge-upc/rsis/raw/gh-pages/assets/rsis.pdf).
-
-If you find it useful, please consider citing !
+Download the paper [here](https://github.com/imatge-upc/rsis/raw/gh-pages/assets/rsis.pdf).
 
 ## Installation
 - Clone the repo:
