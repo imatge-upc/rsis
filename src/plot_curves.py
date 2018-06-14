@@ -43,7 +43,6 @@ def plot_curves_parser(txtfile, multi = True):
                 iou_loss = float(iou_loss.rstrip())
                 stop_loss = float(stop_loss.rstrip())
                 class_loss = float(class_loss.rstrip())
-                stop_loss = float(stop_loss.rstrip())
             else:
                 chunks = line.split('\t')
                 loss = float(chunks[1].split('loss:')[1].rstrip())
