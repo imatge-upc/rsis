@@ -31,66 +31,10 @@ def check_parallel(encoder_dict,decoder_dict):
 
     return encoder_dict, decoder_dict
 
-def get_base_params(args, model):
-    b = []
-    if 'vgg' in args.base_model:
-        b.append(model.base.features)
-    else:
-        b.append(model.base.conv1)
-        b.append(model.base.bn1)
-        b.append(model.base.layer1)
-        b.append(model.base.layer2)
-        b.append(model.base.layer3)
-        b.append(model.base.layer4)
-
-    for i in range(len(b)):
-        for j in b[i].modules():
-            jj = 0
-            for k in j.parameters():
-                jj+=1
-                if k.requires_grad:
-                    yield k
-
-def get_skip_params(model):
-    b = []
-
-    b.append(model.sk1.parameters())
-    b.append(model.sk2.parameters())
-    b.append(model.sk3.parameters())
-    b.append(model.sk4.parameters())
-    b.append(model.sk5.parameters())
-    b.append(model.bn1.parameters())
-    b.append(model.bn2.parameters())
-    b.append(model.bn3.parameters())
-    b.append(model.bn4.parameters())
-    b.append(model.bn5.parameters())
-
-
-    for j in range(len(b)):
-        for i in b[j]:
-            yield i
-
-def merge_params(params):
-    for j in range(len(params)):
-        for i in params[j]:
-            yield i
-
-def get_optimizer(optim_name, lr, parameters, weight_decay = 0, momentum = 0.9):
-    if optim_name == 'sgd':
-        opt = torch.optim.SGD(filter(lambda p: p.requires_grad, parameters),
-                                lr=lr, weight_decay = weight_decay,
-                                momentum = momentum)
-    elif optim_name =='adam':
-        opt = torch.optim.Adam(filter(lambda p: p.requires_grad, parameters), lr=lr, weight_decay = weight_decay)
-    elif optim_name =='rmsprop':
-        opt = torch.optim.RMSprop(filter(lambda p: p.requires_grad, parameters), lr=lr, weight_decay = weight_decay)
-    return opt
-
-def save_checkpoint(args, encoder, decoder, enc_opt, dec_opt):
+def save_checkpoint(args, encoder, decoder, optimizer):
     torch.save(encoder.state_dict(), os.path.join('../models',args.model_name,'encoder.pt'))
     torch.save(decoder.state_dict(), os.path.join('../models',args.model_name,'decoder.pt'))
-    torch.save(enc_opt.state_dict(), os.path.join('../models',args.model_name,'enc_opt.pt'))
-    torch.save(dec_opt.state_dict(), os.path.join('../models',args.model_name,'dec_opt.pt'))
+    torch.save(optimizer.state_dict(), os.path.join('../models',args.model_name,'optimizer.pt'))
     # save parameters for future use
     pickle.dump(args, open(os.path.join('../models',args.model_name,'args.pkl'),'wb'))
 
@@ -98,17 +42,15 @@ def load_checkpoint(model_name,use_gpu=True):
     if use_gpu:
         encoder_dict = torch.load(os.path.join('../models',model_name,'encoder.pt'))
         decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'))
-        enc_opt_dict = torch.load(os.path.join('../models',model_name,'enc_opt.pt'))
-        dec_opt_dict = torch.load(os.path.join('../models',model_name,'dec_opt.pt'))
+        optimizer_dict = torch.load(os.path.join('../models',model_name,'optimizer.pt'))
     else:
         encoder_dict = torch.load(os.path.join('../models',model_name,'encoder.pt'), map_location=lambda storage, location: storage)
         decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'), map_location=lambda storage, location: storage)
-        enc_opt_dict = torch.load(os.path.join('../models',model_name,'enc_opt.pt'), map_location=lambda storage, location: storage)
-        dec_opt_dict = torch.load(os.path.join('../models',model_name,'dec_opt.pt'), map_location=lambda storage, location: storage)
+        optimizer_dict = torch.load(os.path.join('../models',model_name,'optimizer.pt'), map_location=lambda storage, location: storage)
     # save parameters for future use
     args = pickle.load(open(os.path.join('../models',model_name,'args.pkl'),'rb'))
 
-    return encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, args
+    return encoder_dict, decoder_dict, optimizer_dict, args
 
 def batch_to_var(args, inputs, targets):
     """

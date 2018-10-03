@@ -8,21 +8,8 @@ import time
 torch.manual_seed(0)
 
 def MaskedNLL(target, probs, balance_weights=None):
-    # adapted from https://gist.github.com/jihunchoi/f1434a77df9db1bb337417854b398df1
-    """
-    Args:
-        target: A Variable containing a LongTensor of size
-            (batch, ) which contains the index of the true
-            class for each corresponding step.
-        probs: A Variable containing a FloatTensor of size
-            (batch, num_classes) which contains the
-            softmax probability for each class.
-        sw: A Variable containing a LongTensor of size (batch,)
-            which contains the mask to apply to each element in a batch.
-    Returns:
-        loss: Sum of losses with applied sample weight
-    """
-    log_probs = torch.log(probs)
+
+    log_probs = torch.nn.functional.log_softmax(probs)
 
     if balance_weights is not None:
         balance_weights = balance_weights.cuda()

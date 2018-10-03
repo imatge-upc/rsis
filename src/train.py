@@ -1,9 +1,9 @@
 from args import get_parser
-from modules.model import RSIS, FeatureExtractor
+from modules.model import RNNDecoder, FeatureExtractor
 import torchvision.models as models
 from utils.hungarian import match, softIoU, MaskedNLL
-from utils.utils import get_optimizer, batch_to_var, make_dir, init_visdom, check_parallel
-from utils.utils import outs_perms_to_cpu, save_checkpoint, load_checkpoint, get_base_params,get_skip_params,merge_params
+from utils.utils import batch_to_var, make_dir, init_visdom, check_parallel
+from utils.utils import outs_perms_to_cpu, save_checkpoint, load_checkpoint
 from dataloader.dataset_utils import get_dataset
 from scipy.ndimage.measurements import center_of_mass
 import torch
@@ -19,10 +19,14 @@ import os
 import warnings
 import sys
 from PIL import Image
+from utils.tb_logger import Visualizer
 import pickle
 import random
+import torch.backends.cudnn as cudnn
 
+cudnn.benchmark = True
 warnings.filterwarnings("ignore")
+
 
 def init_dataloaders(args):
     loaders = {}
@@ -52,19 +56,15 @@ def init_dataloaders(args):
 
 
 def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
-            sw_class, crits, optims, mode='train'):
+            sw_class, crits, optim, mode='train', keep_gradients=True):
     """
     Runs forward, computes loss and (if train mode) updates parameters
     for the provided batch of inputs and targets
     """
     mask_siou, class_crit, stop_xentropy = crits
-    # mask_siou, class_crit, stop_xentropy = crits
 
-    enc_opt, dec_opt = optims
     T = args.maxseqlen
     hidden = None
-    loss_mask_iou = 0
-    loss_class = 0
     out_masks = []
     out_classes = []
     out_stops = []
@@ -74,7 +74,12 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
     else:
         encoder.train(False)
         decoder.train(False)
-    feats = encoder(x)
+
+    if not keep_gradients:
+        with torch.no_grad():
+            feats = encoder(x)
+    else:
+        feats = encoder(x)
     scores = torch.ones(y_mask.size(0),args.gt_maxseqlen,args.maxseqlen)
 
     if args.curriculum_learning:
@@ -159,7 +164,9 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
     loss_class = class_crit(y_class_perm.view(-1,1),out_classes.view(-1,out_classes.size()[-1]), sw_mask.view(-1,1))
 
     loss_class = torch.mean(loss_class)
-    loss_mask_iou = mask_siou(y_mask_perm.view(-1,y_mask_perm.size()[-1]),out_masks.view(-1,out_masks.size()[-1]), sw_mask.view(-1,1))
+    loss_mask_iou = mask_siou(y_mask_perm.view(-1,y_mask_perm.size()[-1]),
+                              out_masks.view(-1,out_masks.size()[-1]),
+                              sw_mask.view(-1,1))
     loss_mask_iou = torch.mean(loss_mask_iou)
 
     # stopping loss is computed using the masking variable as ground truth
@@ -175,57 +182,46 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
     if args.use_stop_loss:
         loss+=args.stop_weight*loss_stop
 
-    enc_opt.zero_grad()
-    dec_opt.zero_grad()
-    decoder.zero_grad()
-    encoder.zero_grad()
+    optim.zero_grad()
 
     if mode == 'train':
         loss.backward()
-        dec_opt.step()
-        if args.update_encoder:
-            enc_opt.step()
+        optim.step()
 
-    losses = [loss.data[0], loss_mask_iou.data[0], loss_stop.data[0], loss_class.data[0]]
+    losses = {'loss': loss.item(), 'iou': loss_mask_iou.item(), 'stop': loss_stop.item(), 'class': loss_class.item()}
 
     out_masks = torch.sigmoid(out_masks)
     outs = [out_masks.data, out_classes.data]
-
     perms = [y_mask_perm.data, y_class_perm.data]
-    del loss, loss_mask_iou, loss_stop, loss_class, feats, x, y_mask, y_class, sw_mask, sw_class, y_mask_perm, y_class_perm
 
-    return losses, outs, perms
+    return losses
 
 def trainIters(args):
 
-    epoch_resume = 0
+    args.curr_epoch = 0
+    batch_size = args.batch_size
     model_dir = os.path.join('../models/', args.model_name)
+
+    if args.tensorboard:
+        tb_logs = '../models/tb_logs'
+        make_dir(model_dir)
+        tb_logs = os.path.join(tb_logs, args.model_name)
+        make_dir(model_dir)
+        logger = Visualizer(tb_logs, name='visual_results')
 
     if args.resume:
         # will resume training the model with name args.model_name
-        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.model_name,args.use_gpu)
+        encoder_dict, decoder_dict, opt_dict, args = load_checkpoint(args.model_name,args.use_gpu)
 
-        epoch_resume = load_args.epoch_resume
-        encoder = FeatureExtractor(load_args)
-        decoder = RSIS(load_args)
+        encoder = FeatureExtractor(args)
+        decoder = RNNDecoder(args)
         encoder_dict, decoder_dict = check_parallel(encoder_dict,decoder_dict)
         encoder.load_state_dict(encoder_dict)
         decoder.load_state_dict(decoder_dict)
-
-        args = load_args
-
-    elif args.transfer:
-        # load model from args and replace last fc layer
-        encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, load_args = load_checkpoint(args.transfer_from,args.use_gpu)
-        encoder = FeatureExtractor(load_args)
-        decoder = RSIS(args)
-        encoder_dict, decoder_dict = check_parallel(encoder_dict,decoder_dict)
-        encoder.load_state_dict(encoder_dict)
-        decoder.load_state_dict(decoder_dict)
-
+        args.batch_size = batch_size
     else:
         encoder = FeatureExtractor(args)
-        decoder = RSIS(args)
+        decoder = RNNDecoder(args)
 
     # model checkpoints will be saved here
     make_dir(model_dir)
@@ -233,17 +229,22 @@ def trainIters(args):
     # save parameters for future use
     pickle.dump(args, open(os.path.join(model_dir,'args.pkl'),'wb'))
 
-    encoder_params = get_base_params(args,encoder)
-    skip_params = get_skip_params(encoder)
-    decoder_params = list(decoder.parameters()) + list(skip_params)
-    dec_opt = get_optimizer(args.optim, args.lr, decoder_params, args.weight_decay)
-    enc_opt = get_optimizer(args.optim_cnn, args.lr_cnn, encoder_params, args.weight_decay_cnn)
+    params_cnn = encoder.base.parameters()
+    params = list(decoder.parameters()) + list(encoder.pyramid_poolings.parameters())
 
-    if args.resume or args.transfer:
-        enc_opt.load_state_dict(enc_opt_dict)
-        dec_opt.load_state_dict(dec_opt_dict)
+    if args.finetune_after != -1 and args.finetune_after <= args.curr_epoch :
+        print ('Fine tune CNN')
+        keep_cnn_gradients = True
+        optimizer = torch.optim.Adam([{'params': params}, {'params': params_cnn, 'lr': args.lr_cnn}], lr=args.lr)
+    else:
+        print ('Frozen CNN')
+        optimizer = torch.optim.Adam(params, lr=args.lr)
+        keep_cnn_gradients = False
+
+    if args.resume:
+        optimizer.load_state_dict(opt_dict)
         from collections import defaultdict
-        dec_opt.state = defaultdict(dict, dec_opt.state)
+        optimizer.state = defaultdict(dict, optimizer.state)
 
         # change fc layer for new classes
         if load_args.dataset != args.dataset and args.transfer:
@@ -266,12 +267,12 @@ def trainIters(args):
     class_xentropy = MaskedNLLLoss(balance_weight=None)
     stop_xentropy = MaskedBCELoss(balance_weight=args.stop_balance_weight)
 
-    if args.ngpus > 1 and args.use_gpu:
-        decoder = torch.nn.DataParallel(decoder, device_ids=range(args.ngpus))
-        encoder = torch.nn.DataParallel(encoder, device_ids=range(args.ngpus))
-        mask_siou = torch.nn.DataParallel(mask_siou, device_ids=range(args.ngpus))
-        class_xentropy = torch.nn.DataParallel(class_xentropy, device_ids=range(args.ngpus))
-        stop_xentropy = torch.nn.DataParallel(stop_xentropy, device_ids=range(args.ngpus))
+    if torch.cuda.device_count() > 1:
+        decoder = torch.nn.DataParallel(decoder)
+        encoder = torch.nn.DataParallel(encoder)
+        mask_siou = torch.nn.DataParallel(mask_siou)
+        class_xentropy = torch.nn.DataParallel(class_xentropy)
+        stop_xentropy = torch.nn.DataParallel(stop_xentropy)
     if args.use_gpu:
         encoder.cuda()
         decoder.cuda()
@@ -280,7 +281,6 @@ def trainIters(args):
         stop_xentropy.cuda()
 
     crits = [mask_siou, class_xentropy, stop_xentropy]
-    optims = [enc_opt, dec_opt]
     if args.use_gpu:
         torch.cuda.synchronize()
     start = time.time()
@@ -288,161 +288,96 @@ def trainIters(args):
     # vars for early stopping
     best_val_loss = args.best_val_loss
     acc_patience = 0
-    mt_val = -1
-
-    # init windows to visualize, if visdom is enabled
-    if args.visdom:
-        import visdom
-        viz = visdom.Visdom(port=args.port, server=args.server)
-        lot, elot, mviz_pred, mviz_true, image_lot = init_visdom(args, viz)
 
     if args.curriculum_learning and epoch_resume == 0:
             args.limit_seqlen_to = 2
 
     # keep track of the number of batches in each epoch for continuity when plotting curves
     loaders, class_names = init_dataloaders(args)
-    num_batches = {'train': 0, 'val': 0}
-    for e in range(args.max_epoch):
-        print "Epoch", e + epoch_resume
-        # store losses in lists to display average since beginning
-        epoch_losses = {'train': {'total': [], 'iou': [], 'stop': [], 'class': []},
-                            'val': {'total': [], 'iou': [], 'stop': [], 'class': []}}
-            # total mean for epoch will be saved here to display at the end
-        total_losses = {'total': [], 'iou': [], 'stop': [], 'class': []}
+    curr_epoch = args.curr_epoch
+    for e in range(curr_epoch, args.max_epoch):
+        args.curr_epoch = e
+        print "Epoch", e
+        epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': []}
 
         # check if it's time to do some changes here
-        if e + epoch_resume >= args.finetune_after and not args.update_encoder and not args.finetune_after == -1:
-            print("Starting to update encoder")
-            args.update_encoder = True
+        if args.finetune_after != -1 and args.finetune_after <= e and not keep_cnn_gradients:
+            print ('Starting to fine tune CNN')
+            keep_cnn_gradients = True
+            optimizer = torch.optim.Adam([{'params': params}, {'params': params_cnn, 'lr': args.lr_cnn}], lr=args.lr)
             acc_patience = 0
-            mt_val = -1
-        if e + epoch_resume >= args.class_loss_after and not args.use_class_loss and not args.class_loss_after == -1:
+        if e >= args.class_loss_after and not args.use_class_loss and not args.class_loss_after == -1:
             print("Starting to learn class loss")
             args.use_class_loss = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
             acc_patience = 0
-            mt_val = -1
-        if e + epoch_resume >= args.stop_loss_after and not args.use_stop_loss and not args.stop_loss_after == -1:
+        if e >= args.stop_loss_after and not args.use_stop_loss and not args.stop_loss_after == -1:
             if args.curriculum_learning:
                 if args.limit_seqlen_to > args.min_steps:
                     print("Starting to learn stop loss")
                     args.use_stop_loss = True
                     best_val_loss = 1000 # reset because adding a loss term will increase the total value
                     acc_patience = 0
-                    mt_val = -1
             else:
                 print("Starting to learn stop loss")
                 args.use_stop_loss = True
                 best_val_loss = 1000 # reset because adding a loss term will increase the total value
                 acc_patience = 0
-                mt_val = -1
 
         # we validate after each epoch
         for split in ['train', 'val']:
+            total_step = len(loaders[split])
             for batch_idx, (inputs, targets) in enumerate(loaders[split]):
                 # send batch to GPU
 
                 x, y_mask, y_class, sw_mask, sw_class = batch_to_var(args, inputs, targets)
 
                 # we forward (and backward & update if training set)
-                losses, outs, true_perm = runIter(args, encoder, decoder, x, y_mask,
-                                                  y_class, sw_mask, sw_class,
-                                                  crits, optims, mode=split)
+                losses = runIter(args, encoder, decoder, x, y_mask,
+                                 y_class, sw_mask, sw_class,
+                                 crits, optimizer, mode=split, keep_gradients=keep_cnn_gradients)
 
-                # store loss values in dictionary separately
-                epoch_losses[split]['total'].append(losses[0])
-                epoch_losses[split]['iou'].append(losses[1])
-                epoch_losses[split]['stop'].append(losses[2])
-                epoch_losses[split]['class'].append(losses[3])
-
+                for k, v in losses.items():
+                    # store loss values in dictionary separately
+                    epoch_losses[k].append(v)
 
                 # print and display in visdom after some iterations
                 if (batch_idx + 1)% args.print_every == 0:
 
-                    mt = np.mean(epoch_losses[split]['total'])
-                    mi = np.mean(epoch_losses[split]['iou'])
-                    mc = np.mean(epoch_losses[split]['class'])
-                    mx = np.mean(epoch_losses[split]['stop'])
-                    if args.visdom:
-
-                        if split == 'train':
-                            # we display batch loss values in visdom (Training only)
-                            viz.line(
-                                X=torch.ones((1, 4)).cpu() * (batch_idx + e * num_batches[split]),
-                                Y=torch.Tensor([mi, mx, mc, mt]).unsqueeze(0).cpu(),
-                                win=lot,
-                                update='append')
-                        w = x.size()[-1]
-                        h = x.size()[-2]
-                        out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(args, outs, true_perm, h, w)
-
-                        x = x.data.cpu().numpy()
-                        # send image, sample predictions and ground truths to visdom
-                        for t in range(np.shape(out_masks)[1]):
-                            mask_pred = out_masks[0, t]
-                            mask_true = y_mask[0, t]
-                            class_pred = class_names[out_classes[0, t]]
-                            class_true = class_names[y_class[0, t]]
-                            mask_pred = np.reshape(mask_pred, (x.shape[-2], x.shape[-1]))
-                            mask_true = np.reshape(mask_true, (x.shape[-2], x.shape[-1]))
-
-                            # heatmap displays the mask upside down
-                            viz.heatmap(np.flipud(mask_pred), win=mviz_pred[t],
-                                        opts=dict(title='pred mask %d %s' % (t, class_pred)))
-                            viz.heatmap(np.flipud(mask_true), win=mviz_true[t],
-                                        opts=dict(title='true mask %d %s' % (t, class_true)))
-                            viz.image((x[0] * 0.2 + 0.5) * 256, win=image_lot,
-                                      opts=dict(title='image (unnnormalized)'))
-
                     te = time.time() - start
-                    print "iter %d:\ttotal:%.4f\tclass:%.4f\tiou:%.4f\tstop:%.4f\ttime:%.4f" % (batch_idx, mt, mc, mi, mx, te)
-                    if args.use_gpu:
-                        torch.cuda.synchronize()
+                    lossesstr = ''
+                    if args.tensorboard:
+                        logger.scalar_summary(mode=split + '_iter', epoch=e*total_step + batch_idx,
+                                              **{k: np.mean(v[-args.print_every:]) for k, v in epoch_losses.items() if
+                                                 v})
+                    for k in epoch_losses.keys():
+                        if len(epoch_losses[k]) == 0:
+                            continue
+                        this_one = "%s: %.4f" % (k, np.mean(epoch_losses[k]))
+                        lossesstr += this_one + ', '
+                        # this only displays nll loss on captions, the rest of losses will be in tensorboard logs
+                    strtoprint = 'Split: %s, Epoch [%d/%d], Step [%d/%d], Losses: %sTime: %.4f' % (split, e,
+                                                                                                   args.max_epoch,
+                                                                                                   batch_idx,
+                                                                                                   total_step,
+                                                                                                   lossesstr,
+                                                                                                   te)
+                    print(strtoprint)
+                    torch.cuda.synchronize()
                     start = time.time()
 
-            num_batches[split] = batch_idx + 1
+            if args.tensorboard:
+                logger.scalar_summary(mode=split, epoch=e, **{k: np.mean(v) for k, v in epoch_losses.items() if v})
             # compute mean val losses within epoch
 
-            if split == 'val' and args.smooth_curves:
-                if mt_val == -1:
-                    mt = np.mean(epoch_losses[split]['total'])
-                else:
-                    mt = 0.9*mt_val + 0.1*np.mean(epoch_losses[split]['total'])
-                mt_val = mt
+        mt = np.mean(epoch_losses['loss'])
 
-            else:
-                mt = np.mean(epoch_losses[split]['total'])
-
-            mi = np.mean(epoch_losses[split]['iou'])
-            mc = np.mean(epoch_losses[split]['class'])
-            mx = np.mean(epoch_losses[split]['stop'])
-
-
-            # save train and val losses for the epoch to display in visdom
-            total_losses['iou'].append(mi)
-            total_losses['class'].append(mc)
-            total_losses['stop'].append(mx)
-            total_losses['total'].append(mt)
-
-            args.epoch_resume = e + epoch_resume
-
-            print "Epoch %d:\ttotal:%.4f\tclass:%.4f\tiou:%.4f\tstop:%.4f\t(%s)" % (e, mt, mc, mi,mx, split)
-
-        # epoch losses
-        if args.visdom:
-            update = True if e == 0 else 'append'
-            for l in ['total', 'iou', 'stop', 'class']:
-                viz.line(X=torch.ones((1, 2)).cpu() * (e + 1),
-                         Y=torch.Tensor(total_losses[l]).unsqueeze(0).cpu(),
-                         win=elot[l],
-                         update=update)
-
-        if mt < (best_val_loss - args.min_delta):
+        if mt < best_val_loss:
             print "Saving checkpoint."
             best_val_loss = mt
             args.best_val_loss = best_val_loss
             # saves model, params, and optimizers
-            save_checkpoint(args, encoder, decoder, enc_opt, dec_opt)
+            save_checkpoint(args, encoder, decoder, optimizer)
             acc_patience = 0
         else:
             acc_patience += 1
@@ -452,31 +387,19 @@ def trainIters(args):
             acc_patience = 0
             args.use_class_loss = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
-            mt_val = -1
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
-            encoder.load_state_dict(encoder_dict)
-            decoder.load_state_dict(decoder_dict)
-            enc_opt.load_state_dict(enc_opt_dict)
-            dec_opt.load_state_dict(dec_opt_dict)
         if acc_patience > args.patience and args.curriculum_learning and args.limit_seqlen_to < args.maxseqlen:
             print("Adding one step more:")
             acc_patience = 0
             args.limit_seqlen_to += args.steps_cl
             print(args.limit_seqlen_to)
             best_val_loss = 1000
-            mt_val = -1
 
-        if acc_patience > args.patience and not args.update_encoder and not args.finetune_after == -1:
+        if acc_patience > args.patience and not keep_cnn_gradients and not args.finetune_after == -1:
             print("Starting to update encoder")
             acc_patience = 0
-            args.update_encoder = True
-            best_val_loss = 1000  # reset because adding a loss term will increase the total value
-            mt_val = -1
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
-            encoder.load_state_dict(encoder_dict)
-            decoder.load_state_dict(decoder_dict)
-            enc_opt.load_state_dict(enc_opt_dict)
-            dec_opt.load_state_dict(dec_opt_dict)
+            keep_cnn_gradients = True
+            optimizer = torch.optim.Adam([{'params': params}, {'params': params_cnn, 'lr': args.lr_cnn}], lr=args.lr)
+
         if acc_patience > args.patience and not args.use_stop_loss and not args.stop_loss_after == -1:
             if args.curriculum_learning:
                 print("Starting to learn stop loss")
@@ -484,23 +407,18 @@ def trainIters(args):
                     acc_patience = 0
                     args.use_stop_loss = True
                     best_val_loss = 1000 # reset because adding a loss term will increase the total value
-                    mt_val = -1
             else:
                 print("Starting to learn stop loss")
                 acc_patience = 0
                 args.use_stop_loss = True
                 best_val_loss = 1000 # reset because adding a loss term will increase the total value
-                mt_val = -1
 
-            encoder_dict, decoder_dict, enc_opt_dict, dec_opt_dict, _ = load_checkpoint(args.model_name,args.use_gpu)
-            encoder.load_state_dict(encoder_dict)
-            decoder.load_state_dict(decoder_dict)
-            enc_opt.load_state_dict(enc_opt_dict)
-            dec_opt.load_state_dict(dec_opt_dict)
         # early stopping after N epochs without improvement
         if acc_patience > args.patience_stop:
             break
 
+    if args.tensorboard:
+        logger.close()
 
 if __name__ == "__main__":
 

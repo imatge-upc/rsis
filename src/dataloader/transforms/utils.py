@@ -137,7 +137,7 @@ def th_nearest_interp2d(input, coords):
     x = th.clamp(coords[:,:,0], 0, input.size(1)-1).round()
     y = th.clamp(coords[:,:,1], 0, input.size(2)-1).round()
 
-    stride = th.LongTensor(input.stride())
+    stride = th.FloatTensor(input.stride())
     x_ix = x.mul(stride[1]).long()
     y_ix = y.mul(stride[2]).long()
 

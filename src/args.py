@@ -19,7 +19,7 @@ def get_parser():
     parser.add_argument('-seed', dest='seed',default = 123, type=int)
     parser.add_argument('-batch_size', dest='batch_size', default = 28, type=int)
     parser.add_argument('-lr', dest='lr', default = 1e-3,type=float)
-    parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-6,type=float)
+    parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-5,type=float)
     parser.add_argument('-optim_cnn', dest='optim_cnn', default = 'adam',
                         choices=['adam','sgd','rmsprop'])
     parser.add_argument('-momentum', dest='momentum', default =0.9,type=float)
@@ -27,8 +27,8 @@ def get_parser():
     parser.add_argument('-weight_decay_cnn', dest='weight_decay_cnn', default = 1e-6, type=float)
     parser.add_argument('-optim', dest='optim', default = 'adam',
                         choices=['adam','sgd','rmsprop'])
-    parser.add_argument('-maxseqlen', dest='maxseqlen', default = 10, type=int)
-    parser.add_argument('-gt_maxseqlen', dest='gt_maxseqlen', default = 20, type=int)
+    parser.add_argument('-maxseqlen', dest='maxseqlen', default = 7, type=int)
+    parser.add_argument('-gt_maxseqlen', dest='gt_maxseqlen', default = 7, type=int)
     parser.add_argument('-best_val_loss', dest='best_val_loss', default = 1000, type=float)
     parser.add_argument('--crop', dest='crop', action='store_true')
     parser.set_defaults(crop=False)
@@ -81,8 +81,8 @@ def get_parser():
     parser.add_argument('--log_term', dest='log_term', action='store_true',
                         help='if activated, will show logs in stdout instead of log file.')
     parser.set_defaults(log_term=False)
-    parser.add_argument('--visdom', dest='visdom', action='store_true')
-    parser.set_defaults(visdom=False)
+    parser.add_argument('--notensorboard', dest='tensorboard', action='store_false')
+    parser.set_defaults(tensorboard=True)
     parser.add_argument('-port',dest='port',default=8097, type=int, help='visdom port')
     parser.add_argument('-server',dest='server',default='http://localhost', help='visdom server')
 
@@ -112,6 +112,7 @@ def get_parser():
     parser.add_argument('-log_file', dest='log_file', default='train.log')
     parser.add_argument('-hidden_size', dest='hidden_size', default = 128, type=int)
     parser.add_argument('-kernel_size', dest='kernel_size', default = 3, type=int)
+    parser.add_argument('-num_lstms', dest='num_lstms', default=3, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
     parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.0, type=float)
     parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.0, type=float)
