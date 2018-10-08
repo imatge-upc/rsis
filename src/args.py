@@ -17,7 +17,7 @@ def get_parser():
                         'activated (eg if you stop training for whatever reason '
                         'at epoch 15, set epoch_resume to 15)'))
     parser.add_argument('-seed', dest='seed',default = 123, type=int)
-    parser.add_argument('-batch_size', dest='batch_size', default = 28, type=int)
+    parser.add_argument('-batch_size', dest='batch_size', default = 16, type=int)
     parser.add_argument('-lr', dest='lr', default = 1e-3,type=float)
     parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-5,type=float)
     parser.add_argument('-optim_cnn', dest='optim_cnn', default = 'adam',
@@ -54,13 +54,13 @@ def get_parser():
     parser.add_argument('-min_delta', dest='min_delta', default=0.0, type=float)
 
     # Cross entropy loss
-    parser.add_argument('-class_loss_after', dest='class_loss_after', default=20, type=int,
+    parser.add_argument('-class_loss_after', dest='class_loss_after', default=0, type=int,
                         help=('epoch number to start training the classification loss. '
                         'set to -1 to not do it. A patience term can allow to start '
                         'training with this loss (does not apply if value is -1)'))
     parser.add_argument('--use_class_loss', dest='use_class_loss', action='store_true')
     parser.set_defaults(use_class_loss=False)
-    parser.add_argument('-stop_loss_after', dest='stop_loss_after', default = 3000, type=int,
+    parser.add_argument('-stop_loss_after', dest='stop_loss_after', default=0, type=int,
                         help=('epoch number to start training the stopping loss. '
                         'set to -1 to not do it. A patience term can allow to start '
                         'training with this loss (does not apply if value is -1)'))
@@ -68,7 +68,7 @@ def get_parser():
     parser.set_defaults(use_stop_loss=False)
 
     # stopping criterion
-    parser.add_argument('-patience', dest='patience', default = 15, type=int,
+    parser.add_argument('-patience', dest='patience', default = 200, type=int,
                         help=('patience term to activate flags such as '
                         'use_class_loss, feed_prediction and update_encoder if '
                         'their matching vars are not -1'))
@@ -112,10 +112,11 @@ def get_parser():
     parser.add_argument('-log_file', dest='log_file', default='train.log')
     parser.add_argument('-hidden_size', dest='hidden_size', default = 128, type=int)
     parser.add_argument('-kernel_size', dest='kernel_size', default = 3, type=int)
-    parser.add_argument('-num_lstms', dest='num_lstms', default=3, type=int)
+    parser.add_argument('-num_lstms', dest='num_lstms', default=1, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
     parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.0, type=float)
     parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.0, type=float)
+    parser.add_argument('-gamma', dest='gamma', default=1.0, type=float)
 
     # dataset parameters
     parser.add_argument('-imsize',dest='imsize', default=256, type=int)
@@ -136,8 +137,8 @@ def get_parser():
     # testing
     parser.add_argument('-eval_split',dest='eval_split', default='test')
     parser.add_argument('-mask_th',dest='mask_th', default=0.5, type=float)
-    parser.add_argument('-stop_th',dest='stop_th', default=0.5, type=float)
-    parser.add_argument('-class_th',dest='class_th', default=0.5, type=float)
+    parser.add_argument('-stop_th',dest='stop_th', default=0.0, type=float)
+    parser.add_argument('-class_th',dest='class_th', default=0.1, type=float)
     parser.add_argument('-max_dets',dest='max_dets', default=100, type=int)
     parser.add_argument('-min_size',dest='min_size', default=0.001, type=float)
     parser.add_argument('-cat_id',dest='cat_id', default=-1,type=int)

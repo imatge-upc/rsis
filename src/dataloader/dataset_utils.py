@@ -1,17 +1,17 @@
 import numpy as np
 from scipy.ndimage.interpolation import zoom
 import torch
-from transforms.transforms import random_crop
+from .transforms.transforms import random_crop
 import random
 
 def get_dataset(args, split, image_transforms = None, augment = False,imsize = 256):
 
     if args.dataset =='pascal':
-        from pascal import PascalVOC as MyChosenDataset
+        from .pascal import PascalVOC as MyChosenDataset
     elif args.dataset == 'cityscapes':
-        from cityscapes import CityScapes as MyChosenDataset
+        from .cityscapes import CityScapes as MyChosenDataset
     elif args.dataset == 'leaves':
-        from leaves import LeavesDataset as MyChosenDataset
+        from .leaves import LeavesDataset as MyChosenDataset
 
 
     dataset = MyChosenDataset(args,

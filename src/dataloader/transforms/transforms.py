@@ -10,7 +10,7 @@ import random
 import torch as th
 import numpy as np
 
-from utils import th_affine2d, th_random_choice
+from .utils import th_affine2d, th_random_choice
 
 def random_crop(x_list, random_crop_size, orig_size, **kwargs):
     h, w = orig_size

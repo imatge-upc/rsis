@@ -8,7 +8,7 @@ import pycocotools.mask as mask
 from utils.utils import batch_to_var, make_dir, outs_perms_to_cpu, load_checkpoint, check_parallel
 from scipy.ndimage.measurements import center_of_mass
 from scipy.ndimage.morphology import binary_fill_holes
-from modules.model import RSIS, FeatureExtractor
+from modules.model import RNNDecoder, FeatureExtractor
 from test import test
 from PIL import Image
 from scipy.misc import imread
@@ -61,9 +61,12 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
             display_txt = 'plant'
         elif display_txt == 'airplane':
             display_txt = 'plane'
+        #display_txt += str(ann['score'])
         if type(ann['segmentation']['counts']) == list:
             rle = mask.frPyObjects([ann['segmentation']],
                                          im_height, im_width)
+
+
         else:
             rle = [ann['segmentation']]
         m = mask.decode(rle)
@@ -93,6 +96,7 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
         line = matplotlib.lines.Line2D(xdata, ydata, color='r', linewidth=1)
         ax = plt.subplot(111)
         ax.add_line(line)
+
 
 def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
     """
@@ -125,6 +129,7 @@ def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
     segmentation_raw = (pred_mask > th).astype("uint8")
     segmentation_raw = mask.encode(np.asfortranarray(segmentation_raw.reshape([height,width,1])))[0]
     return segmentation, is_valid, segmentation_raw
+
 
 def create_annotation(args, imname, pred_mask, class_id, score, classes, is_valid = True):
     """Creates annotation object following the COCO API ground truth format"""
@@ -221,7 +226,7 @@ class Evaluate():
         self.colors = []
         palette = sequence_palette()
         inv_palette = {}
-        for k,v in palette.iteritems():
+        for k,v in palette.items():
             inv_palette[v] = k
         num_colors = len(inv_palette.keys())
         for i in range(num_colors):
@@ -230,10 +235,10 @@ class Evaluate():
             c = inv_palette[i]
             self.colors.append(c)
 
-        encoder_dict, decoder_dict, _, _, load_args = load_checkpoint(args.model_name,args.use_gpu)
+        encoder_dict, decoder_dict, _, load_args = load_checkpoint(args.model_name,args.use_gpu)
         load_args.use_gpu = args.use_gpu
         self.encoder = FeatureExtractor(load_args)
-        self.decoder = RSIS(load_args)
+        self.decoder = RNNDecoder(load_args)
 
         print(load_args)
 
@@ -256,7 +261,7 @@ class Evaluate():
 
         predictions = list()
         acc_samples = 0
-        print "Creating annotations..."
+        print ("Creating annotations...")
 
         for batch_idx, (inputs, targets) in enumerate(self.loader):
 
@@ -266,6 +271,7 @@ class Evaluate():
             out_masks, out_scores, stop_probs =  test(self.args, self.encoder,
                                                  self.decoder, x)
 
+            out_scores = torch.nn.Softmax(dim=-1)(out_scores)
             out_scores = out_scores.cpu().numpy()
             stop_scores = stop_probs.cpu().numpy()
             out_masks = out_masks.cpu().numpy()
@@ -301,6 +307,7 @@ class Evaluate():
                     if reached_end:
                         break
                     objectness = stop_scores[s][i][0]
+
                     if objectness < args.stop_th:
                         continue
                     pred_mask = out_masks[s][i]
@@ -310,7 +317,6 @@ class Evaluate():
                     else:
                         max_class = out_classes[s][i]
                     # process mask to create annotation
-
                     pred_mask, is_valid,raw_pred_mask = resize_mask(args,pred_mask,h,w,ignore_mask)
 
                     # for evaluation we repeat the mask with all its class probs
@@ -363,10 +369,10 @@ class Evaluate():
         return predictions
 
     def run_eval(self):
-        print "Dataset is %s"%(self.dataset)
-        print "Split is %s"%(self.split)
-        print "Evaluating for %d images"%(len(self.sample_list))
-        print "Number of classes is %d"%(len(self.class_names))
+        print ("Dataset is %s"%(self.dataset))
+        print ("Split is %s"%(self.split))
+        print ("Evaluating for %d images"%(len(self.sample_list)))
+        print ("Number of classes is %d"%(len(self.class_names)))
 
         if self.dataset == 'pascal':
             cocoGT = self.coco.loadRes(self.gt_file)
@@ -405,7 +411,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
 
     if not args.log_term:
-        print "Eval logs will be saved to:", os.path.join('../models',args.model_name, 'eval.log')
+        print ("Eval logs will be saved to:", os.path.join('../models',args.model_name, 'eval.log'))
         sys.stdout = open(os.path.join('../models',args.model_name, 'eval.log'), 'w')
 
     if args.use_gpu:

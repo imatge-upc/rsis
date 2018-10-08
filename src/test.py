@@ -1,6 +1,6 @@
 from args import get_parser
 from utils.hungarian import match, softIoU
-from utils.utils import get_optimizer, batch_to_var, make_dir, load_checkpoint
+from utils.utils import batch_to_var, make_dir, load_checkpoint
 import torch
 import numpy as np
 from torch.autograd import Variable
@@ -12,6 +12,7 @@ import math
 warnings.filterwarnings("ignore")
 
 torch.backends.cudnn.benchmark = True
+
 
 def test(args, encoder, decoder, x):
 
@@ -31,8 +32,8 @@ def test(args, encoder, decoder, x):
     out_stops = []
     encoder.eval()
     decoder.eval()
-
-    feats = encoder(x)
+    with torch.no_grad():
+        feats = encoder(x)
     # loop over sequence length and get predictions
     for t in range(0, T):
         out_mask, out_class, out_stop, hidden = decoder(feats, hidden)
@@ -44,7 +45,7 @@ def test(args, encoder, decoder, x):
         out_stops.append(out_stop)
     # concat all outputs into single tensor to compute the loss
     out_masks = torch.cat(out_masks,1)
-    out_classes = torch.cat(out_classes,1).view(out_class.size(0),len(out_classes),-1)
-    out_stops = torch.cat(out_stops,1).view(out_stop.size(0),len(out_stops),-1)
+    out_classes = torch.cat(out_classes,1).view(out_class.size(0), len(out_classes), -1)
+    out_stops = torch.cat(out_stops,1).view(out_stop.size(0), len(out_stops), -1)
 
     return torch.sigmoid(out_masks).data, out_classes.data, torch.sigmoid(out_stops).data

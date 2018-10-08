@@ -10,9 +10,9 @@ import numpy as np
 import random
 from PIL import Image
 import cv2
-from transforms.transforms import RandomAffine
+from .transforms.transforms import RandomAffine
 import time
-from dataset import MyDataset
+from .dataset import MyDataset
 
 class PascalVOC(MyDataset):
 

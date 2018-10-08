@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision
-import resnet
+from . import resnet
 
 
 class ModelBuilder():

@@ -1,5 +1,5 @@
 import torch
-from hungarian import softIoU, MaskedNLL, StableBalancedMaskedBCE
+from .hungarian import softIoU, MaskedNLL, StableBalancedMaskedBCE
 import torch.nn as nn
 
 

@@ -142,8 +142,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
     y_mask_perm, y_class_perm, _ = match(masks, classes, scores)
 
     # move permuted ground truths back to GPU
-    y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:,0:t]), requires_grad=False)
-    y_class_perm = Variable(torch.from_numpy(y_class_perm[:,0:t]), requires_grad=False)
+    y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:, 0:t]), requires_grad=False)
+    y_class_perm = Variable(torch.from_numpy(y_class_perm[:, 0:t]), requires_grad=False)
 
     if args.use_gpu:
         y_mask_perm = y_mask_perm.cuda()
@@ -167,10 +167,11 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
     loss_mask_iou = mask_siou(y_mask_perm.view(-1,y_mask_perm.size()[-1]),
                               out_masks.view(-1,out_masks.size()[-1]),
                               sw_mask.view(-1,1))
+    loss_mask_iou = torch.pow(loss_mask_iou, args.gamma)
     loss_mask_iou = torch.mean(loss_mask_iou)
 
     # stopping loss is computed using the masking variable as ground truth
-    #loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
+    # loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
     loss_stop = stop_xentropy(sw_mask.float(),out_stops.squeeze(), sw_class.view(-1,1))
     loss_stop = torch.mean(loss_stop)
 
@@ -196,6 +197,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
 
     return losses
 
+
 def trainIters(args):
 
     args.curr_epoch = 0
@@ -211,7 +213,7 @@ def trainIters(args):
 
     if args.resume:
         # will resume training the model with name args.model_name
-        encoder_dict, decoder_dict, opt_dict, args = load_checkpoint(args.model_name,args.use_gpu)
+        encoder_dict, decoder_dict, opt_dict, args = load_checkpoint(args.model_name, args.use_gpu)
 
         encoder = FeatureExtractor(args)
         decoder = RNNDecoder(args)
@@ -232,7 +234,7 @@ def trainIters(args):
     params_cnn = encoder.base.parameters()
     params = list(decoder.parameters()) + list(encoder.pyramid_poolings.parameters())
 
-    if args.finetune_after != -1 and args.finetune_after <= args.curr_epoch :
+    if args.finetune_after != -1 and args.finetune_after <= args.curr_epoch:
         print ('Fine tune CNN')
         keep_cnn_gradients = True
         optimizer = torch.optim.Adam([{'params': params}, {'params': params_cnn, 'lr': args.lr_cnn}], lr=args.lr)
@@ -252,11 +254,11 @@ def trainIters(args):
             decoder.fc_class = nn.Linear(dim_in,args.num_classes)
 
     if not args.log_term:
-        print "Training logs will be saved to:", os.path.join(model_dir, 'train.log')
+        print ("Training logs will be saved to:", os.path.join(model_dir, 'train.log'))
         sys.stdout = open(os.path.join(model_dir, 'train.log'), 'w')
         sys.stderr = open(os.path.join(model_dir, 'train.err'), 'w')
 
-    print args
+    print (args)
 
     # objective functions for mask and class outputs.
     # these return the average across samples in batch whose value
@@ -297,8 +299,8 @@ def trainIters(args):
     curr_epoch = args.curr_epoch
     for e in range(curr_epoch, args.max_epoch):
         args.curr_epoch = e
-        print "Epoch", e
-        epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': []}
+        print ("Epoch", e)
+
 
         # check if it's time to do some changes here
         if args.finetune_after != -1 and args.finetune_after <= e and not keep_cnn_gradients:
@@ -326,6 +328,7 @@ def trainIters(args):
 
         # we validate after each epoch
         for split in ['train', 'val']:
+            epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': []}
             total_step = len(loaders[split])
             for batch_idx, (inputs, targets) in enumerate(loaders[split]):
                 # send batch to GPU
@@ -373,7 +376,7 @@ def trainIters(args):
         mt = np.mean(epoch_losses['loss'])
 
         if mt < best_val_loss:
-            print "Saving checkpoint."
+            print ("Saving checkpoint.")
             best_val_loss = mt
             args.best_val_loss = best_val_loss
             # saves model, params, and optimizers

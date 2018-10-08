@@ -48,7 +48,7 @@ def load_checkpoint(model_name,use_gpu=True):
         decoder_dict = torch.load(os.path.join('../models',model_name,'decoder.pt'), map_location=lambda storage, location: storage)
         optimizer_dict = torch.load(os.path.join('../models',model_name,'optimizer.pt'), map_location=lambda storage, location: storage)
     # save parameters for future use
-    args = pickle.load(open(os.path.join('../models',model_name,'args.pkl'),'rb'))
+    args = pickle.load(open(os.path.join('../models',model_name,'args.pkl'),'rb'), encoding='latin1')
 
     return encoder_dict, decoder_dict, optimizer_dict, args
 

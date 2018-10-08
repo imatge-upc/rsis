@@ -1,17 +1,18 @@
 import torch
 import torch.nn as nn
-from clstm import ConvLSTMCell
+from .clstm import ConvLSTMCell
 import argparse
 import torch.nn.functional as f
 from torch.autograd import Variable
 from torchvision import transforms, models
 import torch.nn as nn
 import math
-from pspnet import PSPNet_R50_Dilated8
-from vision import VGG16, ResNet34, ResNet50, ResNet101
+from .pspnet import PSPNet_R50_Dilated8
+from .vision import VGG16, ResNet34, ResNet50, ResNet101
 import sys
 sys.path.append("..")
 from utils.utils import get_skip_dims
+
 
 class FeatureExtractor(nn.Module):
     '''
@@ -56,10 +57,10 @@ class RNNDecoder(nn.Module):
 
         self.clstm_list = nn.ModuleList()
         for i in range(self.num_lstms):
-            clstm_i = ConvLSTMCell(args, self.hidden_size, self.hidden_size,self.kernel_size, padding = padding)
+            clstm_i = ConvLSTMCell(args, self.hidden_size, self.hidden_size,self.kernel_size, padding=padding)
             self.clstm_list.append(clstm_i)
 
-        self.conv_out = nn.Conv2d(self.hidden_size, 1,self.kernel_size, padding = padding)
+        self.conv_out = nn.Conv2d(self.hidden_size, 1, self.kernel_size, padding=padding)
         self.fc_class = nn.Linear(self.hidden_size, self.num_classes)
         self.fc_stop = nn.Linear(self.hidden_size, 1)
 

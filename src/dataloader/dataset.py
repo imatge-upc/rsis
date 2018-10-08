@@ -7,7 +7,7 @@ import h5py
 import torch.utils.data as data
 import torch
 from torchvision import transforms
-from dataset_utils import scale, flip_crop
+from .dataset_utils import scale, flip_crop
 import numpy as np
 from PIL import Image
 import cv2
