@@ -7,7 +7,7 @@ from torch.autograd import Variable
 from torchvision import transforms, models
 import torch.nn as nn
 import math
-from .pspnet import PSPNet_R50_Dilated8
+from modules.pspnet.models.models import Trunk
 from .vision import VGG16, ResNet34, ResNet50, ResNet101
 import sys
 sys.path.append("..")
@@ -21,8 +21,7 @@ class FeatureExtractor(nn.Module):
     def __init__(self, args):
         super(FeatureExtractor, self).__init__()
 
-        self.base = PSPNet_R50_Dilated8('/projects/foxtenn/base_checkpoints/pspnet/encoder_best.pth',
-                                        '/projects/foxtenn/base_checkpoints/pspnet/decoder_best.pth')
+        self.base = Trunk('', '')
 
         self.pyramid_poolings = nn.Sequential(
             nn.Conv2d(4096, 512, kernel_size=3, padding=1, bias=False),
@@ -61,6 +60,7 @@ class RNNDecoder(nn.Module):
             self.clstm_list.append(clstm_i)
 
         self.conv_out = nn.Conv2d(self.hidden_size, 1, self.kernel_size, padding=padding)
+        self.box_out = nn.Conv2d(self.hidden_size, 2, self.kernel_size, padding=padding)
         self.fc_class = nn.Linear(self.hidden_size, self.num_classes)
         self.fc_stop = nn.Linear(self.hidden_size, 1)
 
@@ -82,12 +82,13 @@ class RNNDecoder(nn.Module):
             feats = hidden
 
         out_mask = self.conv_out(feats)
+        out_box = self.box_out(feats)
 
-        fc_feats = nn.AvgPool2d(feats.size()[2:])(feats).view(feats.size(0), feats.size(1))
+        fc_feats = nn.MaxPool2d(feats.size()[2:])(feats).view(feats.size(0), feats.size(1))
         # classification branch
         class_feats = self.fc_class(fc_feats)
         stop_probs = self.fc_stop(fc_feats)
 
-        return out_mask, class_feats, stop_probs, hidden_list
+        return out_mask, out_box, class_feats, stop_probs, hidden_list
 
 

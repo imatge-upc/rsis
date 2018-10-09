@@ -25,9 +25,11 @@ import json
 from scipy.ndimage.interpolation import zoom
 import random
 from dataloader.dataset_utils import sequence_palette
+from matplotlib import patches
 
 
-def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=False, display_route=False):
+def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=False, display_route=False,
+                  coords=None):
     """Display annotations in image."""
 
     if len(anns) == 0:
@@ -81,21 +83,26 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
 
         img = np.ones((m.shape[0], m.shape[1], 3))
         color_mask = np.array(colors[i])/255.0
-        for i in range(3):
-            img[:,:,i] = color_mask[i]
+        for ii in range(3):
+            img[:,:,ii] = color_mask[ii]
         ax.imshow(np.dstack( (img, m*0.5) ))
         if not no_display_text:
 
             ax.text(x, y, display_txt,
                     bbox = {'facecolor':color_mask, 'alpha':0.6})
-
-    xdata = np.array(xdata)
-    ydata = np.array(ydata)
-
-    if display_route:
-        line = matplotlib.lines.Line2D(xdata, ydata, color='r', linewidth=1)
-        ax = plt.subplot(111)
-        ax.add_line(line)
+        if coords is not None:
+            mult_h = m.shape[0]/32
+            mult_w = m.shape[1]/32
+            w_index, h_index = 1, 0
+            det = coords[i]
+            x1 = det[0][w_index]*mult_w
+            y1 = det[0][h_index]*mult_h
+            w = det[1][w_index]*mult_w - x1
+            h = det[1][h_index]*mult_h - y1
+            rect = patches.Rectangle((x1, y1), w, h, linewidth=1, edgecolor=color_mask,
+                                     facecolor='none')
+            ax = plt.subplot(111)
+            ax.add_patch(rect)
 
 
 def resize_mask(args, pred_mask, height,width, ignore_pixels = None):
@@ -187,11 +194,10 @@ class Evaluate():
         self.all_classes = args.all_classes
         self.use_cats = args.use_cats
         to_tensor = transforms.ToTensor()
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
+                                         std=[1., 1., 1.])
 
-
-        image_transforms = transforms.Compose([to_tensor,normalize])
+        image_transforms = transforms.Compose([normalize])
 
         dataset = get_dataset(args, self.split, image_transforms,augment=False, imsize=args.imsize)
 
@@ -263,19 +269,21 @@ class Evaluate():
         acc_samples = 0
         print ("Creating annotations...")
 
-        for batch_idx, (inputs, targets) in enumerate(self.loader):
+        for batch_idx, (inputs, targets, y_boxes) in enumerate(self.loader):
 
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
-            num_objects = np.sum(sw_mask.data.float().cpu().numpy(),axis=-1)
+            y_boxes = y_boxes.cuda().view(y_boxes.size(0), y_boxes.size(1), y_boxes.size(2), 32, 32)
 
-            out_masks, out_scores, stop_probs =  test(self.args, self.encoder,
-                                                 self.decoder, x)
+            out_masks, out_boxes, out_scores, stop_probs =  test(self.args, self.encoder,
+                                                                 self.decoder, x)
 
             out_scores = torch.nn.Softmax(dim=-1)(out_scores)
             out_scores = out_scores.cpu().numpy()
             stop_scores = stop_probs.cpu().numpy()
             out_masks = out_masks.cpu().numpy()
             out_classes = np.argmax(out_scores,axis=-1)
+            out_boxes = out_boxes.cpu().numpy()
+
             w = x.size()[-1]
             h = x.size()[-2]
             #out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
@@ -299,10 +307,16 @@ class Evaluate():
                 im = imread(image_dir)
                 h = im.shape[0]
                 w = im.shape[1]
-                objectness_scores = []
-                class_scores = []
                 reached_end = False
+                coords = []
                 for i in range(out_masks.shape[1]):
+
+                    coord1 = out_boxes[s, i, 0, :, :]
+                    coord1 = np.unravel_index(coord1.argmax(), coord1.shape)
+                    coord2 = out_boxes[s, i, 1, :, :]
+                    coord2 = np.unravel_index(coord2.argmax(), coord2.shape)
+
+                    coords.append([coord1, coord2])
 
                     if reached_end:
                         break
@@ -354,7 +368,7 @@ class Evaluate():
                     plt.imshow(im)
                     display_masks(this_pred, self.colors, im_height=im.shape[0],
                                 im_width=im.shape[1],
-                                no_display_text=self.args.no_display_text)
+                                no_display_text=self.args.no_display_text, coords=coords)
 
                     if self.dataset == 'cityscapes':
                         sample_idx = sample_idx.split('/')[-1]

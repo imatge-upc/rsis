@@ -60,6 +60,8 @@ def get_parser():
                         'training with this loss (does not apply if value is -1)'))
     parser.add_argument('--use_class_loss', dest='use_class_loss', action='store_true')
     parser.set_defaults(use_class_loss=False)
+    parser.add_argument('--use_box_loss', dest='use_box_loss', action='store_true')
+    parser.set_defaults(use_box_loss=False)
     parser.add_argument('-stop_loss_after', dest='stop_loss_after', default=0, type=int,
                         help=('epoch number to start training the stopping loss. '
                         'set to -1 to not do it. A patience term can allow to start '
@@ -88,6 +90,7 @@ def get_parser():
 
     # loss weights
     parser.add_argument('-class_weight',dest='class_weight',default=0.1, type=float)
+    parser.add_argument('-box_weight', dest='box_weight', default=1e-3, type=float)
     parser.add_argument('-iou_weight',dest='iou_weight',default=1.0, type=float)
     parser.add_argument('-stop_weight',dest='stop_weight',default=0.5, type=float)
     parser.add_argument('-stop_balance_weight',dest='stop_balance_weight',default=0.5, type=float)

@@ -97,16 +97,16 @@ def match(masks, classes, overlaps):
     t_mask_cpu = (t_mask.data).cpu().numpy()
     t_class_cpu = (t_class.data).cpu().numpy()
     # init matrix of permutations
-    permute_indices = np.zeros((t_mask.size(0),t_mask.size(1)),dtype=int)
+    permute_indices = np.zeros((t_mask.size(0), t_mask.size(1)),dtype=int)
     # we will loop over all samples in batch (must apply munkres independently)
     for sample in range(p_mask.size(0)):
         # get the indexes of minimum cost
         indexes = m.compute(overlaps[sample])
         for row, column in indexes:
             # put them in the permutation matrix
-            permute_indices[sample,column] = row
+            permute_indices[sample, column] = row
 
         # sort ground according to permutation
-        t_mask_cpu[sample] = t_mask_cpu[sample,permute_indices[sample],:]
-        t_class_cpu[sample] = t_class_cpu[sample,permute_indices[sample]]
+        t_mask_cpu[sample] = t_mask_cpu[sample, permute_indices[sample], :]
+        t_class_cpu[sample] = t_class_cpu[sample, permute_indices[sample]]
     return t_mask_cpu, t_class_cpu, permute_indices

@@ -7,11 +7,25 @@ class MaskedNLLLoss(nn.Module):
     def __init__(self, balance_weight=None):
         super(MaskedNLLLoss,self).__init__()
         self.balance_weight=balance_weight
+
     def forward(self, y_true, y_pred, sw):
         costs = MaskedNLL(y_true,y_pred, self.balance_weight).view(-1,1)
         # costs = torch.mean(torch.masked_select(costs,sw.byte()))
         costs = torch.masked_select(costs,sw.byte())
         return costs
+
+
+class MaskedBoxLoss(nn.Module):
+    def __init__(self, balance_weight=None):
+        super(MaskedBoxLoss, self).__init__()
+        self.balance_weight = balance_weight
+
+    def forward(self, y_true, y_pred, sw):
+        costs = - torch.nn.functional.log_softmax(y_pred)*y_true
+        # costs = torch.mean(torch.masked_select(costs,sw.byte()))
+        costs = torch.masked_select(costs, sw.byte())
+        return torch.sum(costs, dim=-1)
+
 
 class MaskedBCELoss(nn.Module):
 
