@@ -82,14 +82,18 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
         ydata.append(y)
 
         img = np.ones((m.shape[0], m.shape[1], 3))
+
         color_mask = np.array(colors[i])/255.0
+
         for ii in range(3):
             img[:,:,ii] = color_mask[ii]
         ax.imshow(np.dstack( (img, m*0.5) ))
+        
         if not no_display_text:
 
             ax.text(x, y, display_txt,
                     bbox = {'facecolor':color_mask, 'alpha':0.6})
+
         if coords is not None:
             mult_h = m.shape[0]/32
             mult_w = m.shape[1]/32
@@ -194,10 +198,12 @@ class Evaluate():
         self.all_classes = args.all_classes
         self.use_cats = args.use_cats
         to_tensor = transforms.ToTensor()
-        normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
-                                         std=[1., 1., 1.])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
 
-        image_transforms = transforms.Compose([normalize])
+        # normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
+        #                                 std=[1., 1., 1.])
+        image_transforms = transforms.Compose([to_tensor, normalize])
 
         dataset = get_dataset(args, self.split, image_transforms,augment=False, imsize=args.imsize)
 

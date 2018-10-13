@@ -54,11 +54,13 @@ class MyDataset(data.Dataset):
             image_resize = transforms.Scale(self.imsize, Image.BILINEAR)
 
         img = image_resize(img)
+        '''
         img = np.array(img)
         img = img.astype(np.float32)[:, :, ::-1]  # RGB to BGR!!!
         img = img.transpose((2, 0, 1))
 
         img = torch.from_numpy(img.copy())
+        '''
         if self.transform is not None:
             img = self.transform(img)
 
@@ -134,7 +136,6 @@ class MyDataset(data.Dataset):
             sig = 0.04 * w//8
             x1_mask_gauss = gaussian_filter(x1_mask, sigma=sig)
             x2_mask_gauss = gaussian_filter(x2_mask, sigma=sig)
-
             box_mask[i, 0, :] = np.reshape(x1_mask_gauss, h*w//(8*8))
             box_mask[i, 1, :] = np.reshape(x2_mask_gauss, h*w//(8*8))
 

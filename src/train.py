@@ -36,19 +36,19 @@ def init_dataloaders(args):
         batch_size = args.batch_size
         imsize = args.imsize
         to_tensor = transforms.ToTensor()
-        # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-        #                                  std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                         std=[0.229, 0.224, 0.225])
 
-        normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
-                                         std=[1., 1., 1.])
-        image_transforms = transforms.Compose([normalize])
+        #normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
+        #                                 std=[1., 1., 1.])
+        image_transforms = transforms.Compose([to_tensor, normalize])
 
         # dataset and loaders for training and validation splits
         dataset = get_dataset(args,
                               split=split,
                               image_transforms=image_transforms,
                               augment=args.augment and split == 'train',
-                              imsize = imsize)
+                              imsize=imsize)
 
         loaders[split] = data.DataLoader(dataset, batch_size=batch_size,
                                          shuffle=True,
@@ -69,18 +69,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     T = args.maxseqlen
     hidden = None
     out_masks, out_classes, out_stops, box_preds = [], [], [], []
-    if mode == 'train':
-        encoder.train(True)
-        decoder.train(True)
-    else:
-        encoder.train(False)
-        decoder.train(False)
 
-    if not keep_gradients:
-        with torch.no_grad():
-            feats = encoder(x)
-    else:
-        feats = encoder(x)
+    feats = encoder(x, keep_gradients)
     scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
 
     if args.curriculum_learning:
@@ -146,20 +136,17 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     if args.use_gpu:
         scores = scores.cuda()
 
-    y_mask_perm, y_class_perm, perm_idxs = match(masks, classes, scores)
-
-    for i in range(y_boxes.size(0)):
-        y_boxes[i] = y_boxes[i, perm_idxs[i]]
-
-    y_boxes = y_boxes[:, 0:t].contiguous()
+    y_mask_perm, y_class_perm, y_box_perm, perm_idxs = match(masks, classes, scores, y_boxes)
 
     # move permuted ground truths back to GPU
+    y_box_perm = Variable(torch.from_numpy(y_box_perm[:, 0:t]), requires_grad=False).contiguous()
     y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:, 0:t]), requires_grad=False)
     y_class_perm = Variable(torch.from_numpy(y_class_perm[:, 0:t]), requires_grad=False)
 
     if args.use_gpu:
         y_mask_perm = y_mask_perm.cuda()
         y_class_perm = y_class_perm.cuda()
+        y_box_perm = y_box_perm.cuda()
 
     sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:, 0:t])).contiguous().float()
     sw_class = Variable(torch.from_numpy(sw_class.data.cpu().numpy()[:, 0:t])).contiguous().float()
@@ -173,14 +160,14 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         y_class_perm = y_class_perm.contiguous()
         y_mask_perm = y_mask_perm.contiguous()
     # all losses are masked with sw_mask except the stopping one, which has one extra position
-    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]), sw_mask.view(-1, 1))
+    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]), sw_class.view(-1, 1))
 
     loss_class = torch.mean(loss_class)
 
     loss_box = 0
     for box_coord in range(2):
-        box_loss = MaskedBoxLoss()(y_boxes[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
-                                    box_preds[:, :, box_coord, :].view(-1, box_preds.size(-1)),
+        box_loss = MaskedBoxLoss()(y_box_perm[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
+                                   box_preds[:, :, box_coord, :].view(-1, box_preds.size(-1)),
                                    sw_mask.view(-1, 1))
         loss_box += torch.mean(box_loss)
     loss_box = loss_box/2
@@ -192,7 +179,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     # stopping loss is computed using the masking variable as ground truth
     # loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
-    loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
+    loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze())
+    # loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
     loss_stop = torch.mean(loss_stop)
 
     # total loss is the weighted sum of all terms
@@ -255,8 +243,8 @@ def trainIters(args):
     # save parameters for future use
     pickle.dump(args, open(os.path.join(model_dir,'args.pkl'),'wb'))
 
-    params_cnn = encoder.base.encoder.parameters()
-    params = list(decoder.parameters()) + list(encoder.pyramid_poolings.parameters()) + list(encoder.base.decoder.parameters())
+    params_cnn = list(encoder.base.parameters())
+    params = list(decoder.parameters()) + list(encoder.pyramid_poolings.parameters()) + list(encoder.conv_embed.parameters())
 
     if args.finetune_after != -1 and args.finetune_after <= args.curr_epoch:
         print ('Fine tune CNN')
@@ -283,7 +271,6 @@ def trainIters(args):
         sys.stderr = open(os.path.join(model_dir, 'train.err'), 'w')
 
     print (args)
-
     # objective functions for mask and class outputs.
     # these return the average across samples in batch whose value
     # needs to be considered (those where sw is 1)
@@ -351,6 +338,13 @@ def trainIters(args):
 
         # we validate after each epoch
         for split in ['train', 'val']:
+            if split == 'train':
+                encoder.train()
+                decoder.train()
+            else:
+                encoder.eval()
+                decoder.eval()
+
             epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': [], 'box': []}
             total_step = len(loaders[split])
             for batch_idx, (inputs, targets, boxes) in enumerate(loaders[split]):
@@ -376,6 +370,7 @@ def trainIters(args):
                         logger.scalar_summary(mode=split + '_iter', epoch=e*total_step + batch_idx,
                                               **{k: np.mean(v[-args.print_every:]) for k, v in epoch_losses.items() if
                                                  v})
+                        logger.histo_summary(model=decoder, step=e*total_step + batch_idx)
                     for k in epoch_losses.keys():
                         if len(epoch_losses[k]) == 0:
                             continue
@@ -394,6 +389,7 @@ def trainIters(args):
 
             if args.tensorboard:
                 logger.scalar_summary(mode=split, epoch=e, **{k: np.mean(v) for k, v in epoch_losses.items() if v})
+
             # compute mean val losses within epoch
 
         mt = np.mean(epoch_losses['loss'])

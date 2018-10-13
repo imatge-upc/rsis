@@ -17,7 +17,7 @@ def get_parser():
                         'activated (eg if you stop training for whatever reason '
                         'at epoch 15, set epoch_resume to 15)'))
     parser.add_argument('-seed', dest='seed',default = 123, type=int)
-    parser.add_argument('-batch_size', dest='batch_size', default = 16, type=int)
+    parser.add_argument('-batch_size', dest='batch_size', default=50, type=int)
     parser.add_argument('-lr', dest='lr', default = 1e-3,type=float)
     parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-5,type=float)
     parser.add_argument('-optim_cnn', dest='optim_cnn', default = 'adam',
@@ -90,7 +90,7 @@ def get_parser():
 
     # loss weights
     parser.add_argument('-class_weight',dest='class_weight',default=0.1, type=float)
-    parser.add_argument('-box_weight', dest='box_weight', default=1e-3, type=float)
+    parser.add_argument('-box_weight', dest='box_weight', default=0.1, type=float)
     parser.add_argument('-iou_weight',dest='iou_weight',default=1.0, type=float)
     parser.add_argument('-stop_weight',dest='stop_weight',default=0.5, type=float)
     parser.add_argument('-stop_balance_weight',dest='stop_balance_weight',default=0.5, type=float)
