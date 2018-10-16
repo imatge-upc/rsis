@@ -12,7 +12,7 @@ import numpy as np
 from torch.autograd import Variable
 from torchvision import transforms
 import torch.utils.data as data
-from utils.objectives import MaskedNLLLoss, softIoULoss, MaskedBCELoss, MaskedBoxLoss
+from utils.objectives import MaskedNLLLoss, softIoULoss, MaskedBCELoss, MaskedBoxLoss, MaskedMSELoss
 import time
 import math
 import os
@@ -68,7 +68,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     T = args.maxseqlen
     hidden = None
-    out_masks, out_classes, out_stops, box_preds = [], [], [], []
+    out_masks, out_classes, out_stops, box_preds, uncertainty = [], [], [], [], []
 
     feats = encoder(x, keep_gradients)
     scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
@@ -87,7 +87,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         if sw_mask[:, t].sum().float().cpu().data.numpy() == 0:
             stop_next = True
 
-        out_mask, box_pred, out_class, out_stop, hidden = decoder(feats, hidden)
+        out_mask, box_pred, out_class, out_stop, out_uncert, hidden = decoder(feats, hidden)
 
         upsample_match = nn.UpsamplingBilinear2d(size=(x.size()[-2], x.size()[-1]))
         out_mask = upsample_match(out_mask)
@@ -110,6 +110,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         out_classes.append(out_class)
         out_stops.append(out_stop)
         box_preds.append(box_pred)
+        uncertainty.append(out_uncert)
 
     # concat all outputs into single tensor to compute the loss
     t = len(out_masks)
@@ -117,6 +118,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     box_preds = torch.cat(box_preds, 1).view(box_pred.size(0), len(box_preds), 2, -1)
     out_classes = torch.cat(out_classes, 1).view(out_class.size(0), len(out_classes), -1)
     out_stops = torch.cat(out_stops, 1).view(out_stop.size(0), len(out_stops), -1)
+    uncertainty = torch.cat(uncertainty, 1).view(out_uncert.size(0), len(uncertainty), -1)
 
     #pixel_counts = torch.sum(torch.sigmoid(out_masks), dim=-2)
     #pixel_counts = pixel_counts.sum() / torch.nonzero(pixel_counts.data).size(0)
@@ -160,7 +162,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         y_class_perm = y_class_perm.contiguous()
         y_mask_perm = y_mask_perm.contiguous()
     # all losses are masked with sw_mask except the stopping one, which has one extra position
-    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]), sw_class.view(-1, 1))
+    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]), sw_mask.view(-1, 1))
 
     loss_class = torch.mean(loss_class)
 
@@ -174,12 +176,16 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
                               out_masks.view(-1, out_masks.size()[-1]),
                               sw_mask.view(-1, 1))
+    loss_mask_iou_show = torch.mean(loss_mask_iou)
+    target_iou = (1-loss_mask_iou_show.detach())
+    loss_uncertainty = stop_xentropy(target_iou, uncertainty, sw_mask.view(-1, 1))
+    loss_uncertainty = torch.mean(loss_uncertainty)
     loss_mask_iou = torch.pow(loss_mask_iou, args.gamma)
     loss_mask_iou = torch.mean(loss_mask_iou)
 
     # stopping loss is computed using the masking variable as ground truth
     # loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
-    loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze())
+    loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
     # loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
     loss_stop = torch.mean(loss_stop)
 
@@ -192,6 +198,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         loss += args.stop_weight*loss_stop
     if args.use_box_loss:
         loss +=args.box_weight*loss_box
+    if args.use_uncertainty_loss:
+        loss +=args.uncertainty_weight*loss_uncertainty
     #loss += 1e-5*pixel_counts
 
     optim.zero_grad()
@@ -200,8 +208,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         loss.backward()
         optim.step()
 
-    losses = {'loss': loss.item(), 'iou': loss_mask_iou.item(), 'stop': loss_stop.item(),
-              'class': loss_class.item(), 'box': loss_box.item()}
+    losses = {'loss': loss.item(), 'iou': loss_mask_iou_show.item(), 'stop': loss_stop.item(),
+              'class': loss_class.item(), 'box': loss_box.item(), 'uncertainty': loss_uncertainty.item()}
 
     out_masks = torch.sigmoid(out_masks)
     outs = [out_masks.data, out_classes.data]
@@ -243,8 +251,14 @@ def trainIters(args):
     # save parameters for future use
     pickle.dump(args, open(os.path.join(model_dir,'args.pkl'),'wb'))
 
-    params_cnn = list(encoder.base.parameters())
-    params = list(decoder.parameters()) + list(encoder.pyramid_poolings.parameters()) + list(encoder.conv_embed.parameters())
+    # params_cnn = list(encoder.base.parameters())
+    if args.finetune_layers == 3:
+        params_cnn = list(encoder.base.layer4.parameters()) + list(encoder.base.layer3.parameters()) \
+                     + list(encoder.base.layer2.parameters())
+    else:
+        params_cnn = list(encoder.base.parameters())
+
+    params = list(decoder.parameters()) + list(encoder.conv_embed.parameters())
 
     if args.finetune_after != -1 and args.finetune_after <= args.curr_epoch:
         print ('Fine tune CNN')
@@ -323,6 +337,11 @@ def trainIters(args):
             args.use_class_loss = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
             acc_patience = 0
+        if e >= args.uncertainty_loss_after and not args.use_uncertainty_loss and not args.uncertainty_loss_after == -1:
+            print("Starting to learn uncertainty loss")
+            args.use_uncertainty_loss = True
+            best_val_loss = 1000  # reset because adding a loss term will increase the total value
+            acc_patience = 0
         if e >= args.stop_loss_after and not args.use_stop_loss and not args.stop_loss_after == -1:
             if args.curriculum_learning:
                 if args.limit_seqlen_to > args.min_steps:
@@ -345,7 +364,7 @@ def trainIters(args):
                 encoder.eval()
                 decoder.eval()
 
-            epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': [], 'box': []}
+            epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': [], 'box': [], 'uncertainty': []}
             total_step = len(loaders[split])
             for batch_idx, (inputs, targets, boxes) in enumerate(loaders[split]):
                 # send batch to GPU

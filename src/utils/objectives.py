@@ -16,6 +16,19 @@ class MaskedNLLLoss(nn.Module):
         return costs
 
 
+class MaskedMSELoss(nn.Module):
+    def __init__(self, balance_weight=None):
+        super(MaskedMSELoss, self).__init__()
+        self.balance_weight = balance_weight
+
+    def forward(self, y_true, y_pred, sw=None):
+        costs = nn.MSELoss()(y_true, y_pred).view(-1, 1)
+        # costs = torch.mean(torch.masked_select(costs,sw.byte()))
+        if sw is not None:
+            costs = torch.masked_select(costs, sw.byte())
+        return costs
+
+
 class MaskedBoxLoss(nn.Module):
     def __init__(self, balance_weight=None):
         super(MaskedBoxLoss, self).__init__()

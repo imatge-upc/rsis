@@ -27,16 +27,13 @@ class FeatureExtractor(nn.Module):
         self.base.load_state_dict(models.resnet50(pretrained=True).state_dict())
 
         self.conv_embed = nn.ModuleList()
-        dims = [2048, 1024, 512, 256]
-        for dim in dims:
-            hidden_dim = args.hidden_size//len(dims)
-            conv = nn.Sequential(nn.Dropout2d(args.dropout),
-                                 nn.Conv2d(dim, hidden_dim, 1, padding=0))
+        padding = 0 if args.kernel_size == 1 else 1
+        dims = [2048, 1024, 512, 256, 64]
+        out_dims = [args.hidden_size, args.hidden_size, args.hidden_size//2, args.hidden_size//4, args.hidden_size//8]
+        for i, dim in enumerate(dims):
+            conv = nn.Sequential(nn.Conv2d(dim, out_dims[i], args.kernel_size, padding=padding),
+                                 nn.BatchNorm2d(out_dims[i]))
             self.conv_embed.append(conv)
-
-        self.pyramid_poolings = nn.Sequential(
-            nn.Conv2d(args.hidden_size, args.hidden_size, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(args.hidden_size))
 
     def forward(self, x, keep_grad=True):
         if keep_grad:
@@ -46,12 +43,12 @@ class FeatureExtractor(nn.Module):
                 feats = self.base(x)
 
         embed_feats = []
-        up_ = UpsamplingBilinear2d(size=(x.size(-2) // 8, x.size(-1) // 8))
+        # up_ = UpsamplingBilinear2d(size=(x.size(-2) // 8, x.size(-1) // 8))
         for i, conv in enumerate(self.conv_embed):
             conv(feats[i])
-            embed_feats.append(up_(conv(feats[i])))
-        embed_feats = torch.cat(embed_feats, 1)
-        return self.pyramid_poolings(embed_feats)
+            embed_feats.append(conv(feats[i]))
+        # embed_feats = torch.cat(embed_feats, 1)
+        return embed_feats
 
 
 class RNNDecoder(nn.Module):
@@ -69,55 +66,87 @@ class RNNDecoder(nn.Module):
         padding = 0 if self.kernel_size == 1 else 1
 
         self.dropout = args.dropout
-        self.dropout_stop = args.dropout_stop
-        self.dropout_cls = args.dropout_cls
         self.skip_mode = args.skip_mode
 
+        skip_dims_out = [self.hidden_size, self.hidden_size // 2,
+                         self.hidden_size // 4, self.hidden_size // 8,
+                         self.hidden_size // 16]
+
+        # initialize layers for each deconv stage
         self.clstm_list = nn.ModuleList()
-        for i in range(self.num_lstms):
-            clstm_i = ConvLSTMCell(args, self.hidden_size, self.hidden_size, self.kernel_size, padding=padding)
+        # 5 is the number of deconv steps that we need to reach image size in the output
+        for i in range(len(skip_dims_out)):
+            if i == 0:
+                clstm_in_dim = self.hidden_size
+            else:
+                clstm_in_dim = skip_dims_out[i - 1]
+                clstm_in_dim *= 2
+
+            clstm_i = ConvLSTMCell(args, clstm_in_dim, skip_dims_out[i], self.kernel_size, padding=padding)
             self.clstm_list.append(clstm_i)
 
-        self.conv_out = nn.Conv2d(self.hidden_size, 1, self.kernel_size, padding=padding)
-        self.box_out = nn.Conv2d(self.hidden_size, 2, self.kernel_size, padding=padding)
-        self.fc_class = nn.Linear(self.hidden_size, self.num_classes)
-        self.fc_stop = nn.Linear(self.hidden_size, 1)
-        self.class_conv_merge = nn.Sequential(nn.Conv2d(self.hidden_size*2, self.hidden_size, self.kernel_size,
-                                                        padding=padding))
+        self.conv_out = nn.Conv2d(skip_dims_out[-1], 1, self.kernel_size, padding=padding)
+        self.conv_box = nn.Conv2d(skip_dims_out[-1], 2, self.kernel_size, padding=padding)
+        # calculate the dimensionality of classification vector
+        # side class activations are taken from the output of the convlstm
+        # therefore we need to compute the sum of the dimensionality of outputs
+        # from all convlstm layers
+        fc_dim = 0
+        for sk in skip_dims_out:
+            fc_dim += sk
+
+        self.fc_class = nn.Linear(fc_dim, self.num_classes)
+        self.fc_stop = nn.Linear(fc_dim, 1)
+        self.fc_uncertainty = nn.Linear(fc_dim, 1)
         self.dp_if_train = nn.Dropout2d(self.dropout)
 
     def forward(self, feats, prev_hidden_list):
 
+        clstm_in = feats[0]
+        feats = feats[1:]
+        side_feats = []
         hidden_list = []
-        feats = self.dp_if_train(feats)
 
-        lstm_feats = feats
-        for i in range(len(self.clstm_list)):
+        for i in range(len(feats) + 1):
 
             # hidden states will be initialized the first time forward is called
             if prev_hidden_list is None:
-                state = self.clstm_list[i](lstm_feats, None)
+                state = self.clstm_list[i](clstm_in, None)
             else:
                 # else we take the ones from the previous step for the forward pass
-                state = self.clstm_list[i](lstm_feats, prev_hidden_list[i])
+                state = self.clstm_list[i](clstm_in, prev_hidden_list[i])
             hidden_list.append(state)
             hidden = state[0]
+            hidden = self.dp_if_train(hidden)
 
-            lstm_feats = hidden
-            lstm_feats = self.dp_if_train(lstm_feats)
+            side_feats.append(nn.MaxPool2d(clstm_in.size()[2:])(hidden))
 
-        out_mask = self.conv_out(lstm_feats)
-        out_box = self.box_out(lstm_feats)
+            # apply skip connection
+            if i < len(feats):
+                skip_vec = feats[i]
+                upsample = nn.UpsamplingBilinear2d(size=(skip_vec.size()[-2], skip_vec.size()[-1]))
+                hidden = upsample(hidden)
+                # skip connection
+                clstm_in = torch.cat([hidden, skip_vec], 1)
+            else:
+                up = nn.UpsamplingBilinear2d(size=(hidden.size()[-2] * 2, hidden.size()[-1] * 2))
+                hidden = up(hidden)
+                clstm_in = hidden
 
-        class_feats = torch.cat([lstm_feats, feats], 1)
-        class_feats = self.class_conv_merge(class_feats)
-        fc_feats_cls = nn.MaxPool2d(class_feats.size()[2:])(class_feats).view(class_feats.size(0), class_feats.size(1))
-        fc_feats = nn.MaxPool2d(lstm_feats.size()[2:])(lstm_feats).view(lstm_feats.size(0), lstm_feats.size(1))
+        out_mask = self.conv_out(clstm_in)
+        out_box = self.conv_box(nn.MaxPool2d(8)(clstm_in))
+
         # classification branch
-        # fc_feats = torch.nn.functional.dropout(fc_feats, p=self.dropout_cls, training=self.training)
-        class_feats = nn.Softmax(dim=-1)(self.fc_class(fc_feats_cls))
-        stop_probs = self.fc_stop(fc_feats)
+        side_feats = torch.cat(side_feats, 1).squeeze()
+        class_feats = self.fc_class(side_feats)
+        stop_probs = self.fc_stop(side_feats)
+        uncertainty = self.fc_uncertainty(side_feats.detach())
 
-        return out_mask, out_box, class_feats, stop_probs, hidden_list
+        # the log is computed in the objective function
+        class_probs = nn.Softmax(dim=-1)(class_feats)
+
+        # fc_feats = torch.nn.functional.dropout(fc_feats, p=self.dropout_cls, training=self.training)
+
+        return out_mask, out_box, class_probs, stop_probs, uncertainty, hidden_list
 
 

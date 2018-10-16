@@ -280,8 +280,7 @@ class Evaluate():
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
             y_boxes = y_boxes.cuda().view(y_boxes.size(0), y_boxes.size(1), y_boxes.size(2), 32, 32)
 
-            out_masks, out_boxes, out_scores, stop_probs =  test(self.args, self.encoder,
-                                                                 self.decoder, x)
+            out_masks, out_boxes, out_scores, stop_probs, uncerts = test(self.args, self.encoder, self.decoder, x)
 
             out_scores = torch.nn.Softmax(dim=-1)(out_scores)
             out_scores = out_scores.cpu().numpy()
@@ -289,10 +288,10 @@ class Evaluate():
             out_masks = out_masks.cpu().numpy()
             out_classes = np.argmax(out_scores,axis=-1)
             out_boxes = out_boxes.cpu().numpy()
+            uncerts = uncerts.cpu().numpy()
 
             w = x.size()[-1]
             h = x.size()[-2]
-            #out_masks, out_classes, y_mask, y_class = outs_perms_to_cpu(self.args,outs,true_perms,h,w)
             for s in range(out_masks.shape[0]):
                 this_pred = list()
                 sample_idx = self.sample_list[s+acc_samples]
@@ -326,7 +325,8 @@ class Evaluate():
 
                     if reached_end:
                         break
-                    objectness = stop_scores[s][i][0]
+                    # objectness = stop_scores[s][i][0]
+                    objectness = uncerts[s][i][0]
 
                     if objectness < args.stop_th:
                         continue
@@ -353,7 +353,7 @@ class Evaluate():
                                                 self.class_names,is_valid)
                         if ann is not None:
                             if self.dataset == 'leaves':
-                                if objectness > args.stop_th:
+                                if pred_class_score > args.stop_th:
                                     this_pred.append(ann)
                             else:
                                 # for display we only take the mask with max confidence
