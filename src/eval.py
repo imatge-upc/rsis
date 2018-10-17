@@ -280,7 +280,7 @@ class Evaluate():
             x, y_mask, y_class, sw_mask, sw_class = batch_to_var(self.args, inputs, targets)
             y_boxes = y_boxes.cuda().view(y_boxes.size(0), y_boxes.size(1), y_boxes.size(2), 32, 32)
 
-            out_masks, out_boxes, out_scores, stop_probs, uncerts = test(self.args, self.encoder, self.decoder, x)
+            out_masks, out_boxes, out_scores, stop_probs = test(self.args, self.encoder, self.decoder, x)
 
             # out_scores = torch.nn.Softmax(dim=-1)(out_scores)
             out_scores = out_scores.cpu().numpy()
@@ -288,7 +288,6 @@ class Evaluate():
             out_masks = out_masks.cpu().numpy()
             out_classes = np.argmax(out_scores,axis=-1)
             out_boxes = out_boxes.cpu().numpy()
-            uncerts = uncerts.cpu().numpy()
 
             w = x.size()[-1]
             h = x.size()[-2]
@@ -325,8 +324,7 @@ class Evaluate():
 
                     if reached_end:
                         break
-                    # objectness = stop_scores[s][i][0]
-                    objectness = uncerts[s][i][0]
+                    objectness = stop_scores[s][i][0]
 
                     if objectness < args.stop_th:
                         continue
@@ -343,7 +341,7 @@ class Evaluate():
                             continue
 
                         pred_class_score = out_scores[s][i][cls_id]
-                        pred_class_score_mod = pred_class_score#*objectness
+                        pred_class_score_mod = pred_class_score*objectness
 
                         ann = create_annotation(self.args, sample_idx, pred_mask,
                                                 cls_id, pred_class_score_mod,

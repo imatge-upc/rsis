@@ -20,7 +20,7 @@ def MaskedNLL(target, probs, balance_weights=None):
     return losses.squeeze()
 
 
-def StableBalancedMaskedBCE(target, out, balance_weight = None):
+def StableBalancedMaskedBCE(target, out, mask_mode=True):
     """
     Args:
         target: A Variable containing a LongTensor of size
@@ -32,20 +32,22 @@ def StableBalancedMaskedBCE(target, out, balance_weight = None):
     Returns:
         loss: Sum of losses with applied sample weight
     """
-    if balance_weight is None:
-        num_positive = target.sum()
-        num_negative = (1 - target).sum()
-        total = num_positive + num_negative
-        balance_weight = num_positive / total
+
+    if mask_mode:
+        th_pred = (torch.sigmoid(out).detach() > 0.5).float()
+        mask = target + th_pred - th_pred*target
 
     max_val = (-out).clamp(min=0)
     # bce with logits
     loss_values =  out - out * target + max_val + ((-max_val).exp() + (-out - max_val).exp()).log()
-    loss_positive = loss_values*target
-    loss_negative = loss_values*(1-target)
-    losses = (1-balance_weight)*loss_positive + balance_weight*loss_negative
 
-    return losses.squeeze()
+    if mask_mode:
+        loss_values = loss_values * mask
+        loss_values = loss_values.sum(dim=-1) / ((mask.sum(dim=-1)) + 1e-6)
+    else:
+        loss_values = torch.mean(loss_values, dim=-1)
+
+    return loss_values.squeeze()
 
 
 def softIoU(target, out, e=1e-6):
@@ -62,8 +64,6 @@ def softIoU(target, out, e=1e-6):
         loss: Sum of losses with applied sample weight
     """
 
-
-    out = torch.sigmoid(out)
     # clamp values to avoid nan loss
     #out = torch.clamp(out,min=e,max=1.0-e)
     #target = torch.clamp(target,min=e,max=1.0-e)

@@ -20,11 +20,12 @@ class FeatureExtractor(nn.Module):
 
     def __init__(self, args):
         super(FeatureExtractor, self).__init__()
-        '''
-        self.base = Trunk('', '')
-        '''
-        self.base = ResNet50()
-        self.base.load_state_dict(models.resnet50(pretrained=True).state_dict())
+        if args.base_model == 'resnet50':
+            self.base = ResNet50()
+            self.base.load_state_dict(models.resnet50(pretrained=True).state_dict())
+        else:
+            self.base = ResNet101()
+            self.base.load_state_dict(models.resnet101(pretrained=True).state_dict())
 
         self.conv_embed = nn.ModuleList()
         padding = 0 if args.kernel_size == 1 else 1
@@ -95,9 +96,11 @@ class RNNDecoder(nn.Module):
         for sk in skip_dims_out:
             fc_dim += sk
 
-        self.fc_class = nn.Linear(fc_dim, self.num_classes)
-        self.fc_stop = nn.Linear(fc_dim, 1)
-        self.fc_uncertainty = nn.Linear(fc_dim, 1)
+        self.embed_feats = nn.Sequential(nn.Linear(fc_dim, self.hidden_size),
+                                         nn.ReLU())
+
+        self.fc_class = nn.Linear(self.hidden_size*2, self.num_classes)
+        self.fc_stop = nn.Linear(self.hidden_size, 1)
         self.dp_if_train = nn.Dropout2d(self.dropout)
 
     def forward(self, feats, prev_hidden_list):
@@ -106,6 +109,9 @@ class RNNDecoder(nn.Module):
         feats = feats[1:]
         side_feats = []
         hidden_list = []
+
+        feats_conv5 = clstm_in
+        feats_conv5_pool = nn.MaxPool2d(clstm_in.size()[2:])(feats_conv5)
 
         for i in range(len(feats) + 1):
 
@@ -138,15 +144,17 @@ class RNNDecoder(nn.Module):
 
         # classification branch
         side_feats = torch.cat(side_feats, 1).squeeze().detach()
-        class_feats = self.fc_class(side_feats)
+        side_feats = self.embed_feats(side_feats)
+
+        class_side_feats = torch.cat([feats_conv5_pool.squeeze(), side_feats], 1)
+        class_feats = self.fc_class(class_side_feats)
         stop_probs = self.fc_stop(side_feats)
-        uncertainty = self.fc_uncertainty(side_feats)
 
         # the log is computed in the objective function
         class_probs = nn.Softmax(dim=-1)(class_feats)
 
         # fc_feats = torch.nn.functional.dropout(fc_feats, p=self.dropout_cls, training=self.training)
 
-        return out_mask, out_box, class_probs, stop_probs, uncertainty, hidden_list
+        return out_mask, out_box, class_probs, stop_probs, hidden_list
 
 

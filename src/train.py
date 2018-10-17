@@ -68,7 +68,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     T = args.maxseqlen
     hidden = None
-    out_masks, out_classes, out_stops, box_preds, uncertainty = [], [], [], [], []
+    out_masks, out_classes, out_stops, box_preds = [], [], [], []
 
     feats = encoder(x, keep_gradients)
     scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
@@ -87,7 +87,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         if sw_mask[:, t].sum().float().cpu().data.numpy() == 0:
             stop_next = True
 
-        out_mask, box_pred, out_class, out_stop, out_uncert, hidden = decoder(feats, hidden)
+        out_mask, box_pred, out_class, out_stop, hidden = decoder(feats, hidden)
 
         upsample_match = nn.UpsamplingBilinear2d(size=(x.size()[-2], x.size()[-1]))
         out_mask = upsample_match(out_mask)
@@ -110,7 +110,6 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         out_classes.append(out_class)
         out_stops.append(out_stop)
         box_preds.append(box_pred)
-        uncertainty.append(out_uncert)
 
     # concat all outputs into single tensor to compute the loss
     t = len(out_masks)
@@ -118,7 +117,6 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     box_preds = torch.cat(box_preds, 1).view(box_pred.size(0), len(box_preds), 2, -1)
     out_classes = torch.cat(out_classes, 1).view(out_class.size(0), len(out_classes), -1)
     out_stops = torch.cat(out_stops, 1).view(out_stop.size(0), len(out_stops), -1)
-    uncertainty = torch.cat(uncertainty, 1).view(out_uncert.size(0), len(uncertainty), -1)
 
     #pixel_counts = torch.sum(torch.sigmoid(out_masks), dim=-2)
     #pixel_counts = pixel_counts.sum() / torch.nonzero(pixel_counts.data).size(0)
@@ -173,19 +171,28 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
                                    sw_mask.view(-1, 1))
         loss_box += torch.mean(box_loss)
     loss_box = loss_box/2
+
+    out_masks = torch.sigmoid(out_masks)
+    th_out_masks = (out_masks > 0.5).float()
     loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
                               out_masks.view(-1, out_masks.size()[-1]),
                               sw_mask.view(-1, 1))
     loss_mask_iou_show = torch.mean(loss_mask_iou)
-    target_iou = (1-loss_mask_iou_show.detach())
-    loss_uncertainty = stop_xentropy(target_iou, uncertainty, sw_mask.view(-1, 1))
-    loss_uncertainty = torch.mean(loss_uncertainty)
     loss_mask_iou = torch.pow(loss_mask_iou, args.gamma)
     loss_mask_iou = torch.mean(loss_mask_iou)
 
+    loss_mask_iou_th = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
+                                 th_out_masks.view(-1, th_out_masks.size()[-1]),
+                                 sw_mask.view(-1, 1)).mean().item()
+
+    loss_bce = MaskedBCELoss(mask_mode=False)(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
+                                             out_masks.view(-1, out_masks.size()[-1]),
+                                             sw_mask.view(-1, 1))
+    loss_bce = torch.mean(loss_bce)
+
     # stopping loss is computed using the masking variable as ground truth
     # loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
-    loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
+    loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
     # loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
     loss_stop = torch.mean(loss_stop)
 
@@ -198,8 +205,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         loss += args.stop_weight*loss_stop
     if args.use_box_loss:
         loss +=args.box_weight*loss_box
-    if args.use_uncertainty_loss:
-        loss +=args.uncertainty_weight*loss_uncertainty
+    loss+=args.bce_weight*loss_bce
     #loss += 1e-5*pixel_counts
 
     optim.zero_grad()
@@ -209,7 +215,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         optim.step()
 
     losses = {'loss': loss.item(), 'iou': loss_mask_iou_show.item(), 'stop': loss_stop.item(),
-              'class': loss_class.item(), 'box': loss_box.item(), 'uncertainty': loss_uncertainty.item()}
+              'class': loss_class.item(), 'box': loss_box.item(), 'bce': loss_bce.item(),
+              'iou_th': loss_mask_iou_th}
 
     out_masks = torch.sigmoid(out_masks)
     outs = [out_masks.data, out_classes.data]
@@ -292,7 +299,7 @@ def trainIters(args):
     mask_siou = softIoULoss()
 
     class_xentropy = MaskedNLLLoss(balance_weight=None)
-    stop_xentropy = MaskedBCELoss(balance_weight=args.stop_balance_weight)
+    stop_xentropy = MaskedBCELoss(mask_mode=False)
 
     if torch.cuda.device_count() > 1:
         decoder = torch.nn.DataParallel(decoder)
@@ -337,11 +344,6 @@ def trainIters(args):
             args.use_class_loss = True
             best_val_loss = 1000  # reset because adding a loss term will increase the total value
             acc_patience = 0
-        if e >= args.uncertainty_loss_after and not args.use_uncertainty_loss and not args.uncertainty_loss_after == -1:
-            print("Starting to learn uncertainty loss")
-            args.use_uncertainty_loss = True
-            best_val_loss = 1000  # reset because adding a loss term will increase the total value
-            acc_patience = 0
         if e >= args.stop_loss_after and not args.use_stop_loss and not args.stop_loss_after == -1:
             if args.curriculum_learning:
                 if args.limit_seqlen_to > args.min_steps:
@@ -364,7 +366,7 @@ def trainIters(args):
                 encoder.eval()
                 decoder.eval()
 
-            epoch_losses = {'loss': [], 'iou': [], 'class': [], 'stop': [], 'box': [], 'uncertainty': []}
+            epoch_losses = {'loss': [], 'iou': [], 'iou_th':[], 'class': [], 'stop': [], 'box': [], 'bce': []}
             total_step = len(loaders[split])
             for batch_idx, (inputs, targets, boxes) in enumerate(loaders[split]):
                 # send batch to GPU

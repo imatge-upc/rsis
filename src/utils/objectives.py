@@ -45,12 +45,12 @@ class MaskedBoxLoss(nn.Module):
 
 class MaskedBCELoss(nn.Module):
 
-    def __init__(self,balance_weight=None):
+    def __init__(self,mask_mode=False):
         super(MaskedBCELoss,self).__init__()
-        self.balance_weight = balance_weight
+        self.mask_mode = mask_mode
 
     def forward(self, y_true, y_pred, sw=None):
-        costs = StableBalancedMaskedBCE(y_true,y_pred,self.balance_weight).view(-1,1)
+        costs = StableBalancedMaskedBCE(y_true,y_pred,self.mask_mode).view(-1,1)
         if sw is not None:
             costs = torch.masked_select(costs,sw.byte())
         return costs
