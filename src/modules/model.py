@@ -137,10 +137,10 @@ class RNNDecoder(nn.Module):
         out_box = self.conv_box(nn.MaxPool2d(8)(clstm_in))
 
         # classification branch
-        side_feats = torch.cat(side_feats, 1).squeeze()
+        side_feats = torch.cat(side_feats, 1).squeeze().detach()
         class_feats = self.fc_class(side_feats)
         stop_probs = self.fc_stop(side_feats)
-        uncertainty = self.fc_uncertainty(side_feats.detach())
+        uncertainty = self.fc_uncertainty(side_feats)
 
         # the log is computed in the objective function
         class_probs = nn.Softmax(dim=-1)(class_feats)

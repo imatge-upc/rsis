@@ -63,7 +63,7 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
             display_txt = 'plant'
         elif display_txt == 'airplane':
             display_txt = 'plane'
-        #display_txt += str(ann['score'])
+        display_txt += str(ann['score'])
         if type(ann['segmentation']['counts']) == list:
             rle = mask.frPyObjects([ann['segmentation']],
                                          im_height, im_width)
@@ -282,7 +282,7 @@ class Evaluate():
 
             out_masks, out_boxes, out_scores, stop_probs, uncerts = test(self.args, self.encoder, self.decoder, x)
 
-            out_scores = torch.nn.Softmax(dim=-1)(out_scores)
+            # out_scores = torch.nn.Softmax(dim=-1)(out_scores)
             out_scores = out_scores.cpu().numpy()
             stop_scores = stop_probs.cpu().numpy()
             out_masks = out_masks.cpu().numpy()
@@ -332,10 +332,7 @@ class Evaluate():
                         continue
                     pred_mask = out_masks[s][i]
                     # store class with max confidence for display
-                    if args.class_th == 0.0:
-                        max_class = 1
-                    else:
-                        max_class = out_classes[s][i]
+                    max_class = out_classes[s][i]
                     # process mask to create annotation
                     pred_mask, is_valid,raw_pred_mask = resize_mask(args,pred_mask,h,w,ignore_mask)
 
@@ -346,7 +343,7 @@ class Evaluate():
                             continue
 
                         pred_class_score = out_scores[s][i][cls_id]
-                        pred_class_score_mod = pred_class_score*objectness
+                        pred_class_score_mod = pred_class_score#*objectness
 
                         ann = create_annotation(self.args, sample_idx, pred_mask,
                                                 cls_id, pred_class_score_mod,
