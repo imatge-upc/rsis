@@ -17,7 +17,7 @@ def get_parser():
                         'activated (eg if you stop training for whatever reason '
                         'at epoch 15, set epoch_resume to 15)'))
     parser.add_argument('-seed', dest='seed',default = 123, type=int)
-    parser.add_argument('-batch_size', dest='batch_size', default=32, type=int)
+    parser.add_argument('-batch_size', dest='batch_size', default=28, type=int)
     parser.add_argument('-lr', dest='lr', default = 1e-3,type=float)
     parser.add_argument('-lr_cnn', dest='lr_cnn', default = 1e-5,type=float)
     parser.add_argument('-optim_cnn', dest='optim_cnn', default = 'adam',
@@ -47,7 +47,7 @@ def get_parser():
 
     parser.add_argument('--transfer',dest='transfer', action='store_true')
     parser.set_defaults(transfer=False)
-    parser.add_argument('-transfer_from', dest='transfer_from', default = 'model')
+    parser.add_argument('-transfer_from', dest='transfer_from', default = '')
     parser.add_argument('--curriculum_learning',dest='curriculum_learning', action='store_true')
     parser.set_defaults(curriculum_learning=False)
     parser.add_argument('-steps_cl', dest='steps_cl', default=1, type=int)
@@ -55,7 +55,7 @@ def get_parser():
     parser.add_argument('-min_delta', dest='min_delta', default=0.0, type=float)
 
     # Cross entropy loss
-    parser.add_argument('-class_loss_after', dest='class_loss_after', default=0, type=int,
+    parser.add_argument('-class_loss_after', dest='class_loss_after', default=-1, type=int,
                         help=('epoch number to start training the classification loss. '
                         'set to -1 to not do it. A patience term can allow to start '
                         'training with this loss (does not apply if value is -1)'))
@@ -63,7 +63,7 @@ def get_parser():
     parser.set_defaults(use_class_loss=False)
     parser.add_argument('--use_box_loss', dest='use_box_loss', action='store_true')
     parser.set_defaults(use_box_loss=False)
-    parser.add_argument('-stop_loss_after', dest='stop_loss_after', default=0, type=int,
+    parser.add_argument('-stop_loss_after', dest='stop_loss_after', default=-1, type=int,
                         help=('epoch number to start training the stopping loss. '
                         'set to -1 to not do it. A patience term can allow to start '
                         'training with this loss (does not apply if value is -1)'))
@@ -91,10 +91,10 @@ def get_parser():
 
     # loss weights
     parser.add_argument('-class_weight',dest='class_weight',default=0.1, type=float)
-    parser.add_argument('-box_weight', dest='box_weight', default=0.1, type=float)
+    parser.add_argument('-box_weight', dest='box_weight', default=1.0, type=float)
     parser.add_argument('-iou_weight',dest='iou_weight',default=1.0, type=float)
     parser.add_argument('-stop_weight',dest='stop_weight',default=0.5, type=float)
-    parser.add_argument('-bce_weight',dest='bce_weight',default=1, type=float)
+    parser.add_argument('-bce_weight',dest='bce_weight',default=0, type=float)
 
     parser.add_argument('-stop_balance_weight',dest='stop_balance_weight',default=0.5, type=float)
     # augmentation
@@ -121,8 +121,8 @@ def get_parser():
     parser.add_argument('-num_lstms', dest='num_lstms', default=1, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
     parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.0, type=float)
-    parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.0, type=float)
-    parser.add_argument('-gamma', dest='gamma', default=1.0, type=float)
+    parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.5, type=float)
+    parser.add_argument('-gamma', dest='gamma', default=0.0, type=float)
 
     # dataset parameters
     parser.add_argument('-imsize',dest='imsize', default=256, type=int)
@@ -131,7 +131,7 @@ def get_parser():
     parser.add_argument('-num_classes', dest='num_classes', default = 21, type=int)
     parser.add_argument('-dataset', dest='dataset', default = 'pascal',choices=['pascal','cityscapes', 'leaves'])
     parser.add_argument('-pascal_dir', dest='pascal_dir',
-                        default = '/work/asalvador/dev/data/rsis/VOCAug/')
+                        default = '/home/asalvador/datasets/VOCAug/')
     parser.add_argument('-cityscapes_dir', dest='cityscapes_dir',
                         default='/gpfs/scratch/bsc31/bsc31429/CityScapes/')
     parser.add_argument('-leaves_dir', dest='leaves_dir',

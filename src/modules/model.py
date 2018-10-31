@@ -7,7 +7,6 @@ from torch.autograd import Variable
 from torchvision import transforms, models
 import torch.nn as nn
 import math
-from modules.pspnet.models.models import Trunk
 from .vision import VGG16, ResNet34, ResNet50, ResNet101
 import sys
 from torch.nn.modules.upsampling import UpsamplingBilinear2d
@@ -96,12 +95,16 @@ class RNNDecoder(nn.Module):
         for sk in skip_dims_out:
             fc_dim += sk
 
-        self.embed_feats = nn.Sequential(nn.Linear(fc_dim, self.hidden_size),
-                                         nn.ReLU())
+        self.fc_stop = nn.Sequential(nn.Linear(fc_dim, self.hidden_size),
+                                     nn.ReLU(),
+                                     nn.Linear(self.hidden_size, self.hidden_size),
+                                     nn.ReLU(),
+                                     nn.Linear(self.hidden_size, 1)
+                                     )
+        self.fc_class = nn.Linear(fc_dim, self.num_classes)
 
-        self.fc_class = nn.Linear(self.hidden_size*2, self.num_classes)
-        self.fc_stop = nn.Linear(self.hidden_size, 1)
         self.dp_if_train = nn.Dropout2d(self.dropout)
+        self.dropout_cls = args.dropout_cls
 
     def forward(self, feats, prev_hidden_list):
 
@@ -110,8 +113,8 @@ class RNNDecoder(nn.Module):
         side_feats = []
         hidden_list = []
 
-        feats_conv5 = clstm_in
-        feats_conv5_pool = nn.MaxPool2d(clstm_in.size()[2:])(feats_conv5)
+        # feats_conv5 = clstm_in
+        # feats_conv5_pool = nn.MaxPool2d(clstm_in.size()[2:])(feats_conv5)
 
         for i in range(len(feats) + 1):
 
@@ -143,17 +146,14 @@ class RNNDecoder(nn.Module):
         out_box = self.conv_box(nn.MaxPool2d(8)(clstm_in))
 
         # classification branch
-        side_feats = torch.cat(side_feats, 1).squeeze().detach()
-        side_feats = self.embed_feats(side_feats)
+        side_feats = torch.cat(side_feats, 1).squeeze()
+        stop_probs = self.fc_stop(side_feats.detach())
+        side_feats = torch.nn.functional.dropout(side_feats, p=self.dropout_cls, training=self.training)
 
-        class_side_feats = torch.cat([feats_conv5_pool.squeeze(), side_feats], 1)
-        class_feats = self.fc_class(class_side_feats)
-        stop_probs = self.fc_stop(side_feats)
+        class_feats = self.fc_class(side_feats)
 
         # the log is computed in the objective function
         class_probs = nn.Softmax(dim=-1)(class_feats)
-
-        # fc_feats = torch.nn.functional.dropout(fc_feats, p=self.dropout_cls, training=self.training)
 
         return out_mask, out_box, class_probs, stop_probs, hidden_list
 

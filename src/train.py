@@ -101,7 +101,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         y_pred_i = y_pred_i.view(y_mask.size(0)*y_mask.size(1), y_mask.size(2))
         y_true_p = y_mask.view(y_mask.size(0)*y_mask.size(1), y_mask.size(2))
 
-        c = args.iou_weight * softIoU(y_true_p, y_pred_i)
+        c = args.iou_weight * softIoU(y_true_p, torch.sigmoid(y_pred_i))
         c = c.view(sw_mask.size(0), -1)
         scores[:, :, t] = c.cpu().data
 
@@ -177,23 +177,20 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
                               out_masks.view(-1, out_masks.size()[-1]),
                               sw_mask.view(-1, 1))
-    loss_mask_iou_show = torch.mean(loss_mask_iou)
-    loss_mask_iou = torch.pow(loss_mask_iou, args.gamma)
     loss_mask_iou = torch.mean(loss_mask_iou)
 
     loss_mask_iou_th = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
                                  th_out_masks.view(-1, th_out_masks.size()[-1]),
                                  sw_mask.view(-1, 1)).mean().item()
 
-    loss_bce = MaskedBCELoss(mask_mode=False)(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
-                                             out_masks.view(-1, out_masks.size()[-1]),
-                                             sw_mask.view(-1, 1))
+    loss_bce = stop_xentropy(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
+                             out_masks.view(-1, out_masks.size()[-1]),
+                             sw_mask.view(-1, 1))
     loss_bce = torch.mean(loss_bce)
 
     # stopping loss is computed using the masking variable as ground truth
-    # loss_stop = stop_xentropy(sw_mask.view(-1,1).float(),out_stops.view(-1,out_stops.size()[-1]), sw_class)
+    # loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
     loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
-    # loss_stop = stop_xentropy(sw_mask.float(), out_stops.squeeze(), sw_class.view(-1, 1))
     loss_stop = torch.mean(loss_stop)
 
     # total loss is the weighted sum of all terms
@@ -214,7 +211,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         loss.backward()
         optim.step()
 
-    losses = {'loss': loss.item(), 'iou': loss_mask_iou_show.item(), 'stop': loss_stop.item(),
+    losses = {'loss': loss.item(), 'iou': loss_mask_iou.item(), 'stop': loss_stop.item(),
               'class': loss_class.item(), 'box': loss_box.item(), 'bce': loss_bce.item(),
               'iou_th': loss_mask_iou_th}
 
@@ -248,6 +245,17 @@ def trainIters(args):
         encoder.load_state_dict(encoder_dict)
         decoder.load_state_dict(decoder_dict)
         args.batch_size = batch_size
+
+    elif args.transfer_from != '':
+
+        encoder_dict, decoder_dict, opt_dict, load_args = load_checkpoint(args.transfer_from, args.use_gpu)
+        load_args.dropout_cls = args.dropout_cls
+        encoder = FeatureExtractor(load_args)
+        decoder = RNNDecoder(load_args)
+        encoder_dict, decoder_dict = check_parallel(encoder_dict, decoder_dict)
+        encoder.load_state_dict(encoder_dict)
+        decoder.load_state_dict(decoder_dict)
+
     else:
         encoder = FeatureExtractor(args)
         decoder = RNNDecoder(args)
@@ -281,10 +289,6 @@ def trainIters(args):
         from collections import defaultdict
         optimizer.state = defaultdict(dict, optimizer.state)
 
-        # change fc layer for new classes
-        if load_args.dataset != args.dataset and args.transfer:
-            dim_in = decoder.fc_class.weight.size()[1]
-            decoder.fc_class = nn.Linear(dim_in,args.num_classes)
 
     if not args.log_term:
         print ("Training logs will be saved to:", os.path.join(model_dir, 'train.log'))
@@ -298,8 +302,8 @@ def trainIters(args):
     # mask_xentropy = BalancedStableMaskedBCELoss()
     mask_siou = softIoULoss()
 
-    class_xentropy = MaskedNLLLoss(balance_weight=None)
-    stop_xentropy = MaskedBCELoss(mask_mode=False)
+    class_xentropy = MaskedNLLLoss(balance_weight=None, gamma=args.gamma)
+    stop_xentropy = MaskedBCELoss(mask_mode=False, gamma=args.gamma)
 
     if torch.cuda.device_count() > 1:
         decoder = torch.nn.DataParallel(decoder)
@@ -391,7 +395,7 @@ def trainIters(args):
                         logger.scalar_summary(mode=split + '_iter', epoch=e*total_step + batch_idx,
                                               **{k: np.mean(v[-args.print_every:]) for k, v in epoch_losses.items() if
                                                  v})
-                        logger.histo_summary(model=decoder, step=e*total_step + batch_idx)
+                        # logger.histo_summary(model=decoder, step=e*total_step + batch_idx)
                     for k in epoch_losses.keys():
                         if len(epoch_losses[k]) == 0:
                             continue
@@ -462,6 +466,7 @@ def trainIters(args):
 
     if args.tensorboard:
         logger.close()
+
 
 if __name__ == "__main__":
 

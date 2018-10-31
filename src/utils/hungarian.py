@@ -8,7 +8,7 @@ import time
 torch.manual_seed(0)
 
 
-def MaskedNLL(target, probs, balance_weights=None):
+def MaskedNLL(target, probs, balance_weights=None, gamma=0):
 
     log_probs = torch.log(probs+1e-6)
 
@@ -17,10 +17,14 @@ def MaskedNLL(target, probs, balance_weights=None):
         log_probs = torch.mul(log_probs, balance_weights)
 
     losses = -torch.gather(log_probs, dim=1, index=target)
+    probs_gather = -torch.gather(probs, dim=1, index=target)
+
+    losses = torch.pow((1-probs_gather), gamma)*losses
+
     return losses.squeeze()
 
 
-def StableBalancedMaskedBCE(target, out, mask_mode=True):
+def StableBalancedMaskedBCE(target, out, mask_mode=True, gamma=0):
     """
     Args:
         target: A Variable containing a LongTensor of size
@@ -40,6 +44,11 @@ def StableBalancedMaskedBCE(target, out, mask_mode=True):
     max_val = (-out).clamp(min=0)
     # bce with logits
     loss_values =  out - out * target + max_val + ((-max_val).exp() + (-out - max_val).exp()).log()
+
+    out_probs = torch.sigmoid(out)
+    out_probs = out_probs*target + (1-out_probs)*(1-target)
+
+    loss_values = torch.pow((1-out_probs), gamma)*loss_values
 
     if mask_mode:
         loss_values = loss_values * mask

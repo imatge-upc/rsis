@@ -4,15 +4,16 @@ import torch.nn as nn
 
 
 class MaskedNLLLoss(nn.Module):
-    def __init__(self, balance_weight=None):
+    def __init__(self, balance_weight=None, gamma=0.0):
         super(MaskedNLLLoss,self).__init__()
         self.balance_weight=balance_weight
+        self.gamma = gamma
 
     def forward(self, y_true, y_pred, sw=None):
-        costs = MaskedNLL(y_true,y_pred, self.balance_weight).view(-1,1)
+        costs = MaskedNLL(y_true,y_pred, self.balance_weight, self.gamma).view(-1,1)
         # costs = torch.mean(torch.masked_select(costs,sw.byte()))
         if sw is not None:
-            costs = torch.masked_select(costs,sw.byte())
+            costs = torch.masked_select(costs, sw.byte())
         return costs
 
 
@@ -45,12 +46,13 @@ class MaskedBoxLoss(nn.Module):
 
 class MaskedBCELoss(nn.Module):
 
-    def __init__(self,mask_mode=False):
+    def __init__(self,mask_mode=False, gamma=0):
         super(MaskedBCELoss,self).__init__()
         self.mask_mode = mask_mode
+        self.gamma = gamma
 
     def forward(self, y_true, y_pred, sw=None):
-        costs = StableBalancedMaskedBCE(y_true,y_pred,self.mask_mode).view(-1,1)
+        costs = StableBalancedMaskedBCE(y_true,y_pred,self.mask_mode, self.gamma).view(-1,1)
         if sw is not None:
             costs = torch.masked_select(costs,sw.byte())
         return costs

@@ -63,7 +63,7 @@ def display_masks(anns, colors, im_height=448, im_width=448, no_display_text=Fal
             display_txt = 'plant'
         elif display_txt == 'airplane':
             display_txt = 'plane'
-        display_txt += str(ann['score'])
+        #display_txt += str(ann['score'])
         if type(ann['segmentation']['counts']) == list:
             rle = mask.frPyObjects([ann['segmentation']],
                                          im_height, im_width)
