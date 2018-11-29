@@ -2,6 +2,7 @@ import torch
 from torch import nn
 import torch.nn.functional as f
 from torch.autograd import Variable
+from modules.coordconv import CoordConv
 
 
 class ConvLSTMCell(nn.Module):
@@ -10,11 +11,20 @@ class ConvLSTMCell(nn.Module):
     """
 
     def __init__(self, args, input_size, hidden_size, kernel_size, padding):
-        super(ConvLSTMCell,self).__init__()
+        super(ConvLSTMCell, self).__init__()
         self.use_gpu = args.use_gpu
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.Gates = nn.Conv2d(input_size + hidden_size, 4 * hidden_size, kernel_size, padding=padding)
+        if args.coordconv:
+            self.Gates = CoordConv(in_channels=input_size + hidden_size + 2,
+                                   out_channels=4 * hidden_size,
+                                   kernel_size=kernel_size, padding=padding)
+        else:
+
+            self.Gates = nn.Conv2d(in_channels=input_size + hidden_size,
+                                   out_channels=4 * hidden_size,
+                                   kernel_size=kernel_size, padding=padding)
+        #self.Gates.bias.data.fill_(1.0)
 
     def forward(self, input_, prev_state):
 
@@ -35,7 +45,6 @@ class ConvLSTMCell(nn.Module):
                     Variable(torch.zeros(state_size)),
                     Variable(torch.zeros(state_size))
                 )
-
 
         prev_hidden, prev_cell = prev_state
 

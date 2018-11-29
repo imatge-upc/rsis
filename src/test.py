@@ -29,15 +29,21 @@ def test(args, encoder, decoder, x):
     with torch.no_grad():
         feats = encoder(x)
     # loop over sequence length and get predictions
+    feed_masks = torch.zeros(x.size(0), x.size()[-2] * x.size()[-1]).cuda()
     for t in range(0, T):
-        out_mask, out_box, out_class, out_stop, hidden = decoder(feats, hidden)
-        upsample_match = torch.nn.UpsamplingBilinear2d(size = (x.size()[-2],x.size()[-1]))
+        out_mask, out_box, out_class, out_stop, hidden = decoder(feats, hidden,
+                                                                 feed_masks.view(x.size(0), 1, x.size()[-2], x.size()[-1]))
+        upsample_match = torch.nn.UpsamplingBilinear2d(size = (x.size()[-2], x.size()[-1]))
         out_mask = upsample_match(out_mask)
         # get predictions in list to concat later
         out_masks.append(out_mask)
         out_classes.append(out_class)
         out_stops.append(out_stop)
         out_boxes.append(out_box.unsqueeze(1))
+
+        if args.use_feedback:
+            feed_masks = (torch.sigmoid(out_mask) > 0.5).float().detach()
+
     # concat all outputs into single tensor to compute the loss
     out_masks = torch.cat(out_masks,1)
     out_classes = torch.cat(out_classes,1).view(out_class.size(0), len(out_classes), -1)

@@ -251,7 +251,7 @@ class Evaluate():
         load_args.use_gpu = args.use_gpu
         self.encoder = FeatureExtractor(load_args)
         self.decoder = RNNDecoder(load_args)
-
+        self.args.use_feedback = load_args.use_feedback
         print(load_args)
 
         if args.ngpus > 1 and args.use_gpu:

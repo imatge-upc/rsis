@@ -67,6 +67,7 @@ def get_parser():
                         help=('epoch number to start training the stopping loss. '
                         'set to -1 to not do it. A patience term can allow to start '
                         'training with this loss (does not apply if value is -1)'))
+    parser.add_argument('-ss_after', dest='ss_after', default=-1, type=int)
     parser.add_argument('--use_stop_loss', dest='use_stop_loss', action = 'store_true')
     parser.set_defaults(use_stop_loss=False)
 
@@ -86,9 +87,8 @@ def get_parser():
     parser.set_defaults(log_term=False)
     parser.add_argument('--notensorboard', dest='tensorboard', action='store_false')
     parser.set_defaults(tensorboard=True)
-    parser.add_argument('-port',dest='port',default=8097, type=int, help='visdom port')
-    parser.add_argument('-server',dest='server',default='http://localhost', help='visdom server')
-
+    parser.add_argument('--coordconv', dest='coordconv', action='store_true')
+    parser.set_defaults(coordconv=False)
     # loss weights
     parser.add_argument('-class_weight',dest='class_weight',default=0.1, type=float)
     parser.add_argument('-box_weight', dest='box_weight', default=1.0, type=float)
@@ -121,7 +121,7 @@ def get_parser():
     parser.add_argument('-num_lstms', dest='num_lstms', default=1, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
     parser.add_argument('-dropout_stop', dest='dropout_stop', default = 0.0, type=float)
-    parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.5, type=float)
+    parser.add_argument('-dropout_cls', dest='dropout_cls', default = 0.0, type=float)
     parser.add_argument('-gamma', dest='gamma', default=0.0, type=float)
 
     # dataset parameters
@@ -131,7 +131,7 @@ def get_parser():
     parser.add_argument('-num_classes', dest='num_classes', default = 21, type=int)
     parser.add_argument('-dataset', dest='dataset', default = 'pascal',choices=['pascal','cityscapes', 'leaves'])
     parser.add_argument('-pascal_dir', dest='pascal_dir',
-                        default = '/home/asalvador/datasets/VOCAug/')
+                        default = '/work/asalvador/dev/data/rsis/VOCAug/')
     parser.add_argument('-cityscapes_dir', dest='cityscapes_dir',
                         default='/gpfs/scratch/bsc31/bsc31429/CityScapes/')
     parser.add_argument('-leaves_dir', dest='leaves_dir',
@@ -154,6 +154,10 @@ def get_parser():
     parser.add_argument('--all_classes',dest='all_classes', action='store_true')
     parser.add_argument('--no_run_coco_eval',dest='no_run_coco_eval', action='store_true')
     parser.add_argument('--display_route', dest='display_route', action='store_true')
+    parser.add_argument('--use_feedback', dest='use_feedback', action='store_true')
+    parser.set_defaults(use_feedback=False)
+    parser.add_argument('--teacher_forcing', dest='teacher_forcing', action='store_true')
+    parser.set_defaults(teacher_forcing=False)
     parser.set_defaults(display=False)
     parser.set_defaults(display_route=False)
     parser.set_defaults(use_cats=True)

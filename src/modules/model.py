@@ -8,6 +8,7 @@ from torchvision import transforms, models
 import torch.nn as nn
 import math
 from .vision import VGG16, ResNet34, ResNet50, ResNet101
+from modules.coordconv import CoordConv
 import sys
 from torch.nn.modules.upsampling import UpsamplingBilinear2d
 sys.path.append("..")
@@ -15,7 +16,8 @@ from utils.utils import get_skip_dims
 
 
 class FeatureExtractor(nn.Module):
-    #Returns base network to extract visual features from image
+
+    # Returns base network to extract visual features from image
 
     def __init__(self, args):
         super(FeatureExtractor, self).__init__()
@@ -26,12 +28,17 @@ class FeatureExtractor(nn.Module):
             self.base = ResNet101()
             self.base.load_state_dict(models.resnet101(pretrained=True).state_dict())
 
+        conv_operator = CoordConv if args.coordconv else nn.Conv2d
+
         self.conv_embed = nn.ModuleList()
         padding = 0 if args.kernel_size == 1 else 1
         dims = [2048, 1024, 512, 256, 64]
         out_dims = [args.hidden_size, args.hidden_size, args.hidden_size//2, args.hidden_size//4, args.hidden_size//8]
         for i, dim in enumerate(dims):
-            conv = nn.Sequential(nn.Conv2d(dim, out_dims[i], args.kernel_size, padding=padding),
+            if args.coordconv:
+                dim = dim+2
+            conv = nn.Sequential(conv_operator(in_channels=dim, out_channels=out_dims[i],
+                                               kernel_size=args.kernel_size, padding=padding),
                                  nn.BatchNorm2d(out_dims[i]))
             self.conv_embed.append(conv)
 
@@ -82,8 +89,11 @@ class RNNDecoder(nn.Module):
                 clstm_in_dim = skip_dims_out[i - 1]
                 clstm_in_dim *= 2
 
-            clstm_i = ConvLSTMCell(args, clstm_in_dim, skip_dims_out[i], self.kernel_size, padding=padding)
+            clstm_i = ConvLSTMCell(args, clstm_in_dim + 1, skip_dims_out[i], self.kernel_size, padding=padding)
             self.clstm_list.append(clstm_i)
+
+        value = 10
+        self.bias = nn.Parameter(torch.ones(1)*value)
 
         self.conv_out = nn.Conv2d(skip_dims_out[-1], 1, self.kernel_size, padding=padding)
         self.conv_box = nn.Conv2d(skip_dims_out[-1], 2, self.kernel_size, padding=padding)
@@ -97,8 +107,6 @@ class RNNDecoder(nn.Module):
 
         self.fc_stop = nn.Sequential(nn.Linear(fc_dim, self.hidden_size),
                                      nn.ReLU(),
-                                     nn.Linear(self.hidden_size, self.hidden_size),
-                                     nn.ReLU(),
                                      nn.Linear(self.hidden_size, 1)
                                      )
         self.fc_class = nn.Linear(fc_dim, self.num_classes)
@@ -106,7 +114,7 @@ class RNNDecoder(nn.Module):
         self.dp_if_train = nn.Dropout2d(self.dropout)
         self.dropout_cls = args.dropout_cls
 
-    def forward(self, feats, prev_hidden_list):
+    def forward(self, feats, prev_hidden_list, prev_masks):
 
         clstm_in = feats[0]
         feats = feats[1:]
@@ -117,6 +125,10 @@ class RNNDecoder(nn.Module):
         # feats_conv5_pool = nn.MaxPool2d(clstm_in.size()[2:])(feats_conv5)
 
         for i in range(len(feats) + 1):
+            upsample_match = nn.UpsamplingBilinear2d(size=(clstm_in.size()[-2], clstm_in.size()[-1]))
+            prev_mask_i = upsample_match(prev_masks)
+
+            clstm_in = torch.cat([clstm_in, prev_mask_i], 1)
 
             # hidden states will be initialized the first time forward is called
             if prev_hidden_list is None:
@@ -143,6 +155,11 @@ class RNNDecoder(nn.Module):
                 clstm_in = hidden
 
         out_mask = self.conv_out(clstm_in)
+        bs, c, h, w = out_mask.size()
+
+        out_mask = nn.functional.log_softmax(out_mask.view(out_mask.size(0), -1), dim=-1)
+        out_mask = out_mask.view(bs, c, h, w) + self.bias
+
         out_box = self.conv_box(nn.MaxPool2d(8)(clstm_in))
 
         # classification branch

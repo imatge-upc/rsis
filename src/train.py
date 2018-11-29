@@ -27,6 +27,8 @@ import torch.backends.cudnn as cudnn
 cudnn.benchmark = True
 warnings.filterwarnings("ignore")
 
+LN = 1000
+
 
 def init_dataloaders(args):
     loaders = {}
@@ -72,12 +74,14 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     feats = encoder(x, keep_gradients)
     scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
-
+    scores_aux = torch.zeros(y_mask.size(0), args.maxseqlen).cuda() + (1-sw_mask.float())*(LN)
+    perm_idxs = torch.ones(y_mask.size(0), args.maxseqlen).cuda()
     if args.curriculum_learning:
         T = min(args.maxseqlen, args.limit_seqlen_to)
 
     stop_next = False
     # loop over sequence length and get predictions
+    feed_masks = torch.zeros(y_mask.size(0), x.size()[-2]*x.size()[-1]).cuda()
     for t in range(0, T):
 
         if stop_next:
@@ -87,7 +91,10 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         if sw_mask[:, t].sum().float().cpu().data.numpy() == 0:
             stop_next = True
 
-        out_mask, box_pred, out_class, out_stop, hidden = decoder(feats, hidden)
+        out_mask, box_pred, out_class, out_stop, hidden = decoder(feats, hidden,
+                                                                  feed_masks.view(y_mask.size(0), 1,
+                                                                                  x.size()[-2],
+                                                                                  x.size()[-1]))
 
         upsample_match = nn.UpsamplingBilinear2d(size=(x.size()[-2], x.size()[-1]))
         out_mask = upsample_match(out_mask)
@@ -103,7 +110,22 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
         c = args.iou_weight * softIoU(y_true_p, torch.sigmoid(y_pred_i))
         c = c.view(sw_mask.size(0), -1)
+
         scores[:, :, t] = c.cpu().data
+
+        c = scores_aux + c
+        val, idx = torch.min(c, dim=-1)
+        for b in range(y_mask.size(0)):
+            scores_aux[b, idx[b]] = LN
+        perm_idxs[:, t] = idx
+
+        if args.use_feedback:
+            if args.teacher_forcing:
+                for b in range(y_mask.size(0)):
+                    feed_masks[b] = y_mask[b, idx[b], :].squeeze()
+            else:
+                feed_masks = (torch.sigmoid(out_mask) > 0.5).float().detach()
+        # scores[:, :, t] = c.cpu().data
 
         # get predictions in list to concat later
         out_masks.append(out_mask)
@@ -118,11 +140,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     out_classes = torch.cat(out_classes, 1).view(out_class.size(0), len(out_classes), -1)
     out_stops = torch.cat(out_stops, 1).view(out_stop.size(0), len(out_stops), -1)
 
-    #pixel_counts = torch.sum(torch.sigmoid(out_masks), dim=-2)
-    #pixel_counts = pixel_counts.sum() / torch.nonzero(pixel_counts.data).size(0)
-    #pixel_counts = torch.abs(1-pixel_counts)
-
     # get permutations of ground truth based on predictions (CPU computation)
+
     masks = [y_mask, out_masks]
     classes = [y_class, out_classes]
 
@@ -136,17 +155,29 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     if args.use_gpu:
         scores = scores.cuda()
 
-    y_mask_perm, y_class_perm, y_box_perm, perm_idxs = match(masks, classes, scores, y_boxes)
+    '''
+    y_mask_perm, y_class_perm, y_boxes_perm = y_mask, y_class, y_boxes
+    for b in range(y_mask.size(0)):
+        y_mask_perm[b, :, :] = y_mask[b, perm_idxs[b].long(), :]
+        y_class_perm[b, :] = y_class[b, perm_idxs[b].long()]
+        y_boxes_perm[b, :, :, :] = y_boxes[b, perm_idxs[b].long(), :, :]
+
+    '''
+    y_mask_perm, y_class_perm, y_boxes_perm, perm_idxs = match(masks, classes, scores, y_boxes)
 
     # move permuted ground truths back to GPU
-    y_box_perm = Variable(torch.from_numpy(y_box_perm[:, 0:t]), requires_grad=False).contiguous()
+    y_boxes_perm = Variable(torch.from_numpy(y_boxes_perm[:, 0:t]), requires_grad=False).contiguous()
     y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:, 0:t]), requires_grad=False)
     y_class_perm = Variable(torch.from_numpy(y_class_perm[:, 0:t]), requires_grad=False)
 
     if args.use_gpu:
         y_mask_perm = y_mask_perm.cuda()
         y_class_perm = y_class_perm.cuda()
-        y_box_perm = y_box_perm.cuda()
+        y_boxes_perm = y_boxes_perm.cuda()
+
+    y_mask_perm = y_mask_perm[:, 0:t].contiguous()
+    y_class_perm = y_class_perm[:, 0:t].contiguous()
+    y_boxes_perm = y_boxes_perm[:, 0:t].contiguous()
 
     sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:, 0:t])).contiguous().float()
     sw_class = Variable(torch.from_numpy(sw_class.data.cpu().numpy()[:, 0:t])).contiguous().float()
@@ -157,36 +188,37 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     else:
         out_classes = out_classes.contiguous()
         out_masks = out_masks.contiguous()
-        y_class_perm = y_class_perm.contiguous()
-        y_mask_perm = y_mask_perm.contiguous()
+        # y_class_perm = y_class_perm.contiguous()
+        # y_mask_perm = y_mask_perm.contiguous()
     # all losses are masked with sw_mask except the stopping one, which has one extra position
-    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]), sw_mask.view(-1, 1))
+    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]),
+                            sw_mask.view(-1, 1))
 
     loss_class = torch.mean(loss_class)
 
     loss_box = 0
     for box_coord in range(2):
-        box_loss = MaskedBoxLoss()(y_box_perm[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
+        box_loss = MaskedBoxLoss()(y_boxes_perm[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
                                    box_preds[:, :, box_coord, :].view(-1, box_preds.size(-1)),
                                    sw_mask.view(-1, 1))
         loss_box += torch.mean(box_loss)
     loss_box = loss_box/2
 
+    loss_bce = stop_xentropy(y_mask_perm.view(-1, y_mask.size()[-1]),
+                             out_masks.view(-1, out_masks.size()[-1]),
+                             sw_mask.view(-1, 1))
+    loss_bce = torch.mean(loss_bce)
+
     out_masks = torch.sigmoid(out_masks)
     th_out_masks = (out_masks > 0.5).float()
-    loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
+    loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask.size()[-1]),
                               out_masks.view(-1, out_masks.size()[-1]),
                               sw_mask.view(-1, 1))
     loss_mask_iou = torch.mean(loss_mask_iou)
 
-    loss_mask_iou_th = mask_siou(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
+    loss_mask_iou_th = mask_siou(y_mask_perm.view(-1, y_mask.size()[-1]),
                                  th_out_masks.view(-1, th_out_masks.size()[-1]),
                                  sw_mask.view(-1, 1)).mean().item()
-
-    loss_bce = stop_xentropy(y_mask_perm.view(-1, y_mask_perm.size()[-1]),
-                             out_masks.view(-1, out_masks.size()[-1]),
-                             sw_mask.view(-1, 1))
-    loss_bce = torch.mean(loss_bce)
 
     # stopping loss is computed using the masking variable as ground truth
     # loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
@@ -203,7 +235,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     if args.use_box_loss:
         loss +=args.box_weight*loss_box
     loss+=args.bce_weight*loss_bce
-    #loss += 1e-5*pixel_counts
+    # loss += 1e-5*pixel_counts
 
     optim.zero_grad()
 
@@ -216,8 +248,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
               'iou_th': loss_mask_iou_th}
 
     out_masks = torch.sigmoid(out_masks)
-    outs = [out_masks.data, out_classes.data]
-    perms = [y_mask_perm.data, y_class_perm.data]
+    # outs = [out_masks.data, out_classes.data]
+    # perms = [y_mask_perm.data, y_class_perm.data]
 
     return losses
 
@@ -289,7 +321,6 @@ def trainIters(args):
         from collections import defaultdict
         optimizer.state = defaultdict(dict, optimizer.state)
 
-
     if not args.log_term:
         print ("Training logs will be saved to:", os.path.join(model_dir, 'train.log'))
         sys.stdout = open(os.path.join(model_dir, 'train.log'), 'w')
@@ -336,6 +367,14 @@ def trainIters(args):
     for e in range(curr_epoch, args.max_epoch):
         args.curr_epoch = e
         print ("Epoch", e)
+
+        if args.ss_after != -1 and args.ss_after <= e:
+            args.teacher_forcing = False
+            best_val_loss = 1000
+            acc_patience = 0
+        else:
+            args.teacher_forcing = True
+        print (args.teacher_forcing)
 
         # check if it's time to do some changes here
         if args.finetune_after != -1 and args.finetune_after <= e and not keep_cnn_gradients:
@@ -417,7 +456,7 @@ def trainIters(args):
 
             # compute mean val losses within epoch
 
-        mt = np.mean(epoch_losses['loss'])
+        mt = np.mean(epoch_losses['iou_th'])
 
         if mt < best_val_loss:
             print ("Saving checkpoint.")
