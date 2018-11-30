@@ -9,10 +9,10 @@ import torch
 import numpy as np
 import random
 from PIL import Image
-import cv2
 from .transforms.transforms import RandomAffine
 import time
 from .dataset import MyDataset
+import lmdb
 
 class PascalVOC(MyDataset):
 
@@ -36,24 +36,16 @@ class PascalVOC(MyDataset):
         self.max_seq_len = args.gt_maxseqlen
         self.image_dir = os.path.join(args.pascal_dir, 'JPEGImages')
         self.transform = transform
-        self.target_transform = target_transform
         self.batch_size = args.batch_size
-        if self.batch_size == 1:
-            self.crop = False
-        else:
-            self.crop = True
-        self.flip = augment
         if augment:
             self.augmentation_transform = RandomAffine(rotation_range=args.rotation,
                                                     translation_range=args.translation,
                                                     shear_range=args.shear,
-                                                    zoom_range=(args.zoom,max(args.zoom*2,1.0)),
                                                     interp = 'nearest')
 
         else:
             self.augmentation_transform = None
         self.zoom = args.zoom
-        self.augment = augment
         self.imsize = imsize
         self.resize = resize
         self.masks_dir = os.path.join(args.pascal_dir, 'ProcMasks')
@@ -65,15 +57,31 @@ class PascalVOC(MyDataset):
             for line in lines:
                 self.image_files.append(line.rstrip('\n'))
 
+        self.lmdb_file = lmdb.open(os.path.join(args.pascal_dir, 'lmdbs', 'lmdb_' + split), max_readers=1,
+                                   readonly=True, lock=False, readahead=False, meminit=False)
+
     def get_raw_sample(self,index):
         """
         Returns sample data in raw format (no resize)
         """
-        image_file = os.path.join(self.image_dir,self.image_files[index].rstrip() + '.jpg')
-        img = Image.open(image_file).convert('RGB')
+        name = self.image_files[index].rstrip()
+        data = {}
+        with self.lmdb_file.begin(write=False) as txn:
 
-        mask = np.load(os.path.join(self.masks_dir,self.image_files[index].rstrip() + '.npy'))
-        ins = mask[:,:,1]
-        seg = mask[:,:,0]
+            for suff in ['image', 'masks', 'cats', 'boxes']:
+                datum = txn.get((name + '_' + suff).encode())
+                if suff == 'image':
+                    datum = np.fromstring(datum, dtype=np.uint8)
+                    datum = np.reshape(datum, (self.imsize, self.imsize, 3))
+                    datum = Image.fromarray(datum.astype('uint8'), 'RGB')
+                elif suff == 'masks':
+                    datum = np.fromstring(datum)
+                    datum = np.reshape(datum, (10, self.imsize, self.imsize))
+                    datum = datum[0:self.max_seq_len]
+                    # datum = np.transpose(datum, (1, 2, 0))
+                else:
+                    datum = np.fromstring(datum)
+                    datum = datum[0:self.max_seq_len]
 
-        return img, ins, seg
+                data[suff] = datum
+        return data

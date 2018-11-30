@@ -28,6 +28,7 @@ cudnn.benchmark = True
 warnings.filterwarnings("ignore")
 
 LN = 1000
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def init_dataloaders(args):
@@ -61,7 +62,7 @@ def init_dataloaders(args):
 
 
 def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
-            sw_class, crits, optim, mode='train', keep_gradients=True):
+            crits, optim, mode='train', keep_gradients=True):
     """
     Runs forward, computes loss and (if train mode) updates parameters
     for the provided batch of inputs and targets
@@ -74,14 +75,14 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     feats = encoder(x, keep_gradients)
     scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
-    scores_aux = torch.zeros(y_mask.size(0), args.maxseqlen).cuda() + (1-sw_mask.float())*(LN)
-    perm_idxs = torch.ones(y_mask.size(0), args.maxseqlen).cuda()
+    scores_aux = torch.zeros(y_mask.size(0), args.maxseqlen).to(device) + (1-sw_mask.float())*(LN)
+    perm_idxs = torch.ones(y_mask.size(0), args.maxseqlen).to(device)
     if args.curriculum_learning:
         T = min(args.maxseqlen, args.limit_seqlen_to)
 
     stop_next = False
     # loop over sequence length and get predictions
-    feed_masks = torch.zeros(y_mask.size(0), x.size()[-2]*x.size()[-1]).cuda()
+    feed_masks = torch.zeros(y_mask.size(0), x.size()[-2]*x.size()[-1]).to(device)
     for t in range(0, T):
 
         if stop_next:
@@ -153,7 +154,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     scores = Variable(scores,requires_grad=False)
     if args.use_gpu:
-        scores = scores.cuda()
+        scores = scores.to(device)
 
     '''
     y_mask_perm, y_class_perm, y_boxes_perm = y_mask, y_class, y_boxes
@@ -163,28 +164,26 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         y_boxes_perm[b, :, :, :] = y_boxes[b, perm_idxs[b].long(), :, :]
 
     '''
-    y_mask_perm, y_class_perm, y_boxes_perm, perm_idxs = match(masks, classes, scores, y_boxes)
+    y_mask_perm, y_class_perm, perm_idxs = match(masks, classes, scores)
 
     # move permuted ground truths back to GPU
-    y_boxes_perm = Variable(torch.from_numpy(y_boxes_perm[:, 0:t]), requires_grad=False).contiguous()
+    # y_boxes_perm = Variable(torch.from_numpy(y_boxes_perm[:, 0:t]), requires_grad=False).contiguous()
     y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:, 0:t]), requires_grad=False)
     y_class_perm = Variable(torch.from_numpy(y_class_perm[:, 0:t]), requires_grad=False)
 
     if args.use_gpu:
-        y_mask_perm = y_mask_perm.cuda()
-        y_class_perm = y_class_perm.cuda()
-        y_boxes_perm = y_boxes_perm.cuda()
+        y_mask_perm = y_mask_perm.to(device)
+        y_class_perm = y_class_perm.to(device)
+        # y_boxes_perm = y_boxes_perm.to(device)
 
     y_mask_perm = y_mask_perm[:, 0:t].contiguous()
     y_class_perm = y_class_perm[:, 0:t].contiguous()
-    y_boxes_perm = y_boxes_perm[:, 0:t].contiguous()
+    # y_boxes_perm = y_boxes_perm[:, 0:t].contiguous()
 
     sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:, 0:t])).contiguous().float()
-    sw_class = Variable(torch.from_numpy(sw_class.data.cpu().numpy()[:, 0:t])).contiguous().float()
 
     if args.use_gpu:
-        sw_mask = sw_mask.cuda()
-        sw_class = sw_class.cuda()
+        sw_mask = sw_mask.to(device)
     else:
         out_classes = out_classes.contiguous()
         out_masks = out_masks.contiguous()
@@ -197,13 +196,14 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
     loss_class = torch.mean(loss_class)
 
     loss_box = 0
+    '''
     for box_coord in range(2):
         box_loss = MaskedBoxLoss()(y_boxes_perm[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
                                    box_preds[:, :, box_coord, :].view(-1, box_preds.size(-1)),
                                    sw_mask.view(-1, 1))
         loss_box += torch.mean(box_loss)
     loss_box = loss_box/2
-
+    '''
     loss_bce = stop_xentropy(y_mask_perm.view(-1, y_mask.size()[-1]),
                              out_masks.view(-1, out_masks.size()[-1]),
                              sw_mask.view(-1, 1))
@@ -222,7 +222,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     # stopping loss is computed using the masking variable as ground truth
     # loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
-    loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
+    loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1))
     loss_stop = torch.mean(loss_stop)
 
     # total loss is the weighted sum of all terms
@@ -244,7 +244,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         optim.step()
 
     losses = {'loss': loss.item(), 'iou': loss_mask_iou.item(), 'stop': loss_stop.item(),
-              'class': loss_class.item(), 'box': loss_box.item(), 'bce': loss_bce.item(),
+              'class': loss_class.item(), 'bce': loss_bce.item(),
               'iou_th': loss_mask_iou_th}
 
     out_masks = torch.sigmoid(out_masks)
@@ -343,11 +343,11 @@ def trainIters(args):
         class_xentropy = torch.nn.DataParallel(class_xentropy)
         stop_xentropy = torch.nn.DataParallel(stop_xentropy)
     if args.use_gpu:
-        encoder.cuda()
-        decoder.cuda()
-        class_xentropy.cuda()
-        mask_siou.cuda()
-        stop_xentropy.cuda()
+        encoder.to(device)
+        decoder.to(device)
+        class_xentropy.to(device)
+        mask_siou.to(device)
+        stop_xentropy.to(device)
 
     crits = [mask_siou, class_xentropy, stop_xentropy]
     if args.use_gpu:
@@ -411,14 +411,17 @@ def trainIters(args):
 
             epoch_losses = {'loss': [], 'iou': [], 'iou_th':[], 'class': [], 'stop': [], 'box': [], 'bce': []}
             total_step = len(loaders[split])
-            for batch_idx, (inputs, targets, boxes) in enumerate(loaders[split]):
+            for batch_idx, (img, masks, cats, boxes, sw) in enumerate(loaders[split]):
                 # send batch to GPU
-
-                x, y_mask, y_class, sw_mask, sw_class = batch_to_var(args, inputs, targets)
-                boxes = boxes.cuda().float()
+                print (batch_idx)
+                y_mask = masks.to(device)
+                y_class = cats.to(device)
+                x = img.to(device)
+                sw_mask = sw.to(device)
+                boxes = boxes.to(device).float()
                 # we forward (and backward & update if training set)
                 losses = runIter(args, encoder, decoder, x, y_mask,
-                                 boxes, y_class, sw_mask, sw_class,
+                                 boxes, y_class, sw_mask,
                                  crits, optimizer, mode=split, keep_gradients=keep_cnn_gradients)
 
                 for k, v in losses.items():
