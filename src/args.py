@@ -156,6 +156,8 @@ def get_parser():
     parser.add_argument('--display_route', dest='display_route', action='store_true')
     parser.add_argument('--use_feedback', dest='use_feedback', action='store_true')
     parser.set_defaults(use_feedback=False)
+    parser.add_argument('--lmdb', dest='lmdb', action='store_true')
+    parser.set_defaults(lmdb=False)
     parser.add_argument('--teacher_forcing', dest='teacher_forcing', action='store_true')
     parser.set_defaults(teacher_forcing=False)
     parser.set_defaults(display=False)

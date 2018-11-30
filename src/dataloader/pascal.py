@@ -13,6 +13,8 @@ from .transforms.transforms import RandomAffine
 import time
 from .dataset import MyDataset
 import lmdb
+import pickle
+
 
 class PascalVOC(MyDataset):
 
@@ -36,6 +38,7 @@ class PascalVOC(MyDataset):
         self.max_seq_len = args.gt_maxseqlen
         self.image_dir = os.path.join(args.pascal_dir, 'JPEGImages')
         self.transform = transform
+        self.pascal_dir = args.pascal_dir
         self.batch_size = args.batch_size
         if augment:
             self.augmentation_transform = RandomAffine(rotation_range=args.rotation,
@@ -49,6 +52,7 @@ class PascalVOC(MyDataset):
         self.imsize = imsize
         self.resize = resize
         self.masks_dir = os.path.join(args.pascal_dir, 'ProcMasks')
+        self.lmdb = args.lmdb
         splits_dir = os.path.join(args.pascal_dir, 'ImageSets/Segmentation')
         split_f = os.path.join(splits_dir, split+'.txt')
 
@@ -66,22 +70,30 @@ class PascalVOC(MyDataset):
         """
         name = self.image_files[index].rstrip()
         data = {}
-        with self.lmdb_file.begin(write=False) as txn:
-
-            for suff in ['image', 'masks', 'cats', 'boxes']:
-                datum = txn.get((name + '_' + suff).encode())
-                if suff == 'image':
-                    datum = np.fromstring(datum, dtype=np.uint8)
-                    datum = np.reshape(datum, (self.imsize, self.imsize, 3))
-                    datum = Image.fromarray(datum.astype('uint8'), 'RGB')
-                elif suff == 'masks':
-                    datum = np.fromstring(datum)
-                    datum = np.reshape(datum, (10, self.imsize, self.imsize))
-                    datum = datum[0:self.max_seq_len]
-                    # datum = np.transpose(datum, (1, 2, 0))
-                else:
-                    datum = np.fromstring(datum)
-                    datum = datum[0:self.max_seq_len]
-
-                data[suff] = datum
+        
+        if self.lmdb:
+          with self.lmdb_file.begin(write=False) as txn:
+  
+              for suff in ['image', 'masks', 'cats', 'boxes']:
+                  datum = txn.get((name + '_' + suff).encode())
+                  if suff == 'image':
+                      datum = np.fromstring(datum, dtype=np.uint8)
+                      datum = np.reshape(datum, (self.imsize, self.imsize, 3))
+                      datum = Image.fromarray(datum.astype('uint8'), 'RGB')
+                  elif suff == 'masks':
+                      datum = np.fromstring(datum)
+                      datum = np.reshape(datum, (10, self.imsize, self.imsize))
+                      datum = datum[0:self.max_seq_len]
+                      # datum = np.transpose(datum, (1, 2, 0))
+                  else:
+                      datum = np.fromstring(datum)
+                      datum = datum[0:self.max_seq_len]
+  
+                  data[suff] = datum
+        else:
+            data = pickle.load(open(os.path.join(self.pascal_dir, 'lmdbs', name + '.pkl'),'rb'))
+            data['masks'] = np.reshape(data['masks'][0:self.max_seq_len], (self.max_seq_len, self.imsize, self.imsize))
+            data['cats'] = data['cats'][0:self.max_seq_len].squeeze()
+            data['boxes'] = data['boxes'][0:self.max_seq_len].squeeze()
+            data['image'] = Image.fromarray(data['image'].astype('uint8'), 'RGB')
         return data

@@ -45,7 +45,7 @@ class MyDataset(data.Dataset):
             img, ins = self.augmentation_transform(img, ins)
 
         sw = np.array(data['cats'] != 0).astype(float)
-        print (index)
+        # print (img.size(), ins.size(), sw.size())
         return img, ins.view(ins.size(0), ins.size(1)*ins.size(2)).float(), torch.from_numpy(data['cats']).long(), \
                torch.from_numpy(data['boxes']).float(), torch.from_numpy(sw)
 

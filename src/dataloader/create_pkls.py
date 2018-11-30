@@ -7,6 +7,7 @@ from scipy.ndimage.interpolation import zoom
 import argparse
 import lmdb
 from torchvision import transforms
+import pickle
 
 
 MAX_SIZE = 1e12
@@ -119,19 +120,27 @@ def main(args):
 
             img = np.array(img).astype(np.uint8)
             name = image_files[index].rstrip()
-            with parts[split].begin(write=True) as txn:
-                txn.put((name + '_image').encode(), img)
-                txn.put((name + '_masks').encode(), masks)
-                txn.put((name + '_cats').encode(), categories)
-                txn.put((name + '_boxes').encode(), boxes)
+            
+            if args.lmdb:
+                with parts[split].begin(write=True) as txn:
+                    txn.put((name + '_image').encode(), img)
+                    txn.put((name + '_masks').encode(), masks)
+                    txn.put((name + '_cats').encode(), categories)
+                    txn.put((name + '_boxes').encode(), boxes)
+            else:   
+                data = {'image':img, 'masks':masks, 'cats':categories, 'boxes':boxes}
+                with open(os.path.join(args.save_dir, name + '.pkl'), 'wb') as f:
+                    pickle.dump(data, f)
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root', type=str, default='/work/asalvador/dev/data/rsis/VOCAug/')
-    parser.add_argument('--save_dir', type=str, default='/work/asalvador/dev/data/rsis/VOCAug/lmdbs/')
+    parser.add_argument('--root', type=str, default='/home/asalvador/datasets/VOCAug/')
+    parser.add_argument('--save_dir', type=str, default='/home/asalvador/datasets/VOCAug/lmdbs/')
     parser.add_argument('--imsize', type=int, default=256)
     parser.add_argument('--maxseqlen', type=int, default=10)
+    parser.add_argument('--lmdb', dest='lmdb', action='store_true')
+    parser.set_defaults(lmdb=False)
     args = parser.parse_args()
 
     main(args)

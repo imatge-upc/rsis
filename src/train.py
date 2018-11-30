@@ -413,7 +413,6 @@ def trainIters(args):
             total_step = len(loaders[split])
             for batch_idx, (img, masks, cats, boxes, sw) in enumerate(loaders[split]):
                 # send batch to GPU
-                print (batch_idx)
                 y_mask = masks.to(device)
                 y_class = cats.to(device)
                 x = img.to(device)
