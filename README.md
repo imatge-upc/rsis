@@ -1,6 +1,6 @@
 # Recurrent Neural Networks for Semantic Instance Segmentation
 
-Download the paper [here](https://github.com/imatge-upc/rsis/raw/gh-pages/assets/rsis.pdf).
+See the paper in arXiv [here](https://arxiv.org/pdf/1712.00617.pdf).
 
 ## Installation
 - Clone the repo:
