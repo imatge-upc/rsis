@@ -25,7 +25,6 @@ class MyDataset(data.Dataset):
                  resize = False,
                  imsize = 256):
 
-
         self.max_seq_len = args.gt_maxseqlen
         self.classes = []
         self.imsize = imsize
@@ -47,7 +46,7 @@ class MyDataset(data.Dataset):
         sw = np.array(data['cats'] != 0).astype(float)
         # print (img.size(), ins.size(), sw.size())
         return img, ins.view(ins.size(0), ins.size(1)*ins.size(2)).float(), torch.from_numpy(data['cats']).long(), \
-               torch.from_numpy(data['boxes']).float(), torch.from_numpy(sw)
+               torch.from_numpy(sw)
 
     def __len__(self):
         return len(self.image_files)

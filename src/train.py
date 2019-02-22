@@ -12,7 +12,7 @@ import numpy as np
 from torch.autograd import Variable
 from torchvision import transforms
 import torch.utils.data as data
-from utils.objectives import MaskedNLLLoss, softIoULoss, MaskedBCELoss, MaskedBoxLoss, MaskedMSELoss
+from utils.objectives import MaskedNLLLoss, softIoULoss, MaskedBCELoss, MaskedMSELoss
 import time
 import math
 import os
@@ -42,8 +42,6 @@ def init_dataloaders(args):
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
 
-        #normalize = transforms.Normalize(mean=[102.9801, 115.9465, 122.7717],
-        #                                 std=[1., 1., 1.])
         image_transforms = transforms.Compose([to_tensor, normalize])
 
         # dataset and loaders for training and validation splits
@@ -61,7 +59,7 @@ def init_dataloaders(args):
     return loaders, class_names
 
 
-def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
+def runIter(args, encoder, decoder, x, y_mask, y_class, sw_mask,
             crits, optim, mode='train', keep_gradients=True):
     """
     Runs forward, computes loss and (if train mode) updates parameters
@@ -71,10 +69,11 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     T = args.maxseqlen
     hidden = None
-    out_masks, out_classes, out_stops, box_preds = [], [], [], []
+    out_masks, out_classes, out_stops = [], [], []
 
     feats = encoder(x, keep_gradients)
-    scores = torch.ones(y_mask.size(0), args.gt_maxseqlen, args.maxseqlen)
+
+    # scores_aux has a high value in masked positions, and also in already picked positions
     scores_aux = torch.zeros(y_mask.size(0), args.maxseqlen).to(device) + (1-sw_mask.float())*(LN)
     perm_idxs = torch.ones(y_mask.size(0), args.maxseqlen).to(device)
     if args.curriculum_learning:
@@ -92,10 +91,10 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         if sw_mask[:, t].sum().float().cpu().data.numpy() == 0:
             stop_next = True
 
-        out_mask, box_pred, out_class, out_stop, hidden = decoder(feats, hidden,
-                                                                  feed_masks.view(y_mask.size(0), 1,
-                                                                                  x.size()[-2],
-                                                                                  x.size()[-1]))
+        out_mask, out_class, out_stop, hidden = decoder(feats, hidden,
+                                                        feed_masks.view(y_mask.size(0), 1,
+                                                                        x.size()[-2],
+                                                                        x.size()[-1]))
 
         upsample_match = nn.UpsamplingBilinear2d(size=(x.size()[-2], x.size()[-1]))
         out_mask = upsample_match(out_mask)
@@ -109,10 +108,8 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         y_pred_i = y_pred_i.view(y_mask.size(0)*y_mask.size(1), y_mask.size(2))
         y_true_p = y_mask.view(y_mask.size(0)*y_mask.size(1), y_mask.size(2))
 
-        c = args.iou_weight * softIoU(y_true_p, torch.sigmoid(y_pred_i))
+        c = softIoU(y_true_p, torch.sigmoid(y_pred_i))
         c = c.view(sw_mask.size(0), -1)
-
-        scores[:, :, t] = c.cpu().data
 
         c = scores_aux + c
         val, idx = torch.min(c, dim=-1)
@@ -122,108 +119,59 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
         if args.use_feedback:
             if args.teacher_forcing:
+                # pick ground truth mask of the picked idx (the one with lowest loss)
                 for b in range(y_mask.size(0)):
                     feed_masks[b] = y_mask[b, idx[b], :].squeeze()
             else:
                 feed_masks = (torch.sigmoid(out_mask) > 0.5).float().detach()
-        # scores[:, :, t] = c.cpu().data
 
         # get predictions in list to concat later
         out_masks.append(out_mask)
         out_classes.append(out_class)
         out_stops.append(out_stop)
-        box_preds.append(box_pred)
 
     # concat all outputs into single tensor to compute the loss
     t = len(out_masks)
     out_masks = torch.cat(out_masks, 1).view(out_mask.size(0), len(out_masks), -1)
-    box_preds = torch.cat(box_preds, 1).view(box_pred.size(0), len(box_preds), 2, -1)
     out_classes = torch.cat(out_classes, 1).view(out_class.size(0), len(out_classes), -1)
     out_stops = torch.cat(out_stops, 1).view(out_stop.size(0), len(out_stops), -1)
 
-    # get permutations of ground truth based on predictions (CPU computation)
-
-    masks = [y_mask, out_masks]
-    classes = [y_class, out_classes]
-
-    sw_mask_mult = sw_mask.unsqueeze(-1).repeat(1, 1, args.maxseqlen).byte()
-    sw_mask_mult_T = sw_mask[:, 0:args.maxseqlen].unsqueeze(-1).repeat(1, 1, args.gt_maxseqlen).byte()
-    sw_mask_mult_T = sw_mask_mult_T.permute(0, 2, 1).byte()
-    sw_mask_mult = (sw_mask_mult.data.cpu() & sw_mask_mult_T.data.cpu()).float()
-    scores = torch.mul(scores, sw_mask_mult) + (1-sw_mask_mult)*10
-
-    scores = Variable(scores,requires_grad=False)
-    if args.use_gpu:
-        scores = scores.to(device)
-
-    '''
-    y_mask_perm, y_class_perm, y_boxes_perm = y_mask, y_class, y_boxes
+    y_mask_perm, y_class_perm = y_mask, y_class
     for b in range(y_mask.size(0)):
         y_mask_perm[b, :, :] = y_mask[b, perm_idxs[b].long(), :]
         y_class_perm[b, :] = y_class[b, perm_idxs[b].long()]
-        y_boxes_perm[b, :, :, :] = y_boxes[b, perm_idxs[b].long(), :, :]
-
-    '''
-    y_mask_perm, y_class_perm, perm_idxs = match(masks, classes, scores)
-
-    # move permuted ground truths back to GPU
-    # y_boxes_perm = Variable(torch.from_numpy(y_boxes_perm[:, 0:t]), requires_grad=False).contiguous()
-    y_mask_perm = Variable(torch.from_numpy(y_mask_perm[:, 0:t]), requires_grad=False)
-    y_class_perm = Variable(torch.from_numpy(y_class_perm[:, 0:t]), requires_grad=False)
-
-    if args.use_gpu:
-        y_mask_perm = y_mask_perm.to(device)
-        y_class_perm = y_class_perm.to(device)
-        # y_boxes_perm = y_boxes_perm.to(device)
 
     y_mask_perm = y_mask_perm[:, 0:t].contiguous()
     y_class_perm = y_class_perm[:, 0:t].contiguous()
-    # y_boxes_perm = y_boxes_perm[:, 0:t].contiguous()
+    sw_mask = sw_mask[:, 0:t].contiguous().float()
 
-    sw_mask = Variable(torch.from_numpy(sw_mask.data.cpu().numpy()[:, 0:t])).contiguous().float()
+    out_classes = out_classes.contiguous()
+    out_masks = out_masks.contiguous()
 
-    if args.use_gpu:
-        sw_mask = sw_mask.to(device)
-    else:
-        out_classes = out_classes.contiguous()
-        out_masks = out_masks.contiguous()
-        # y_class_perm = y_class_perm.contiguous()
-        # y_mask_perm = y_mask_perm.contiguous()
-    # all losses are masked with sw_mask except the stopping one, which has one extra position
-    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]),
-                            sw_mask.view(-1, 1))
+    # assign weight proportional to the amount of samples with nonmasked elements in ith positions.
+    weight_mask = sw_mask.size(0) / (sw_mask.sum(dim=0).unsqueeze(0) + 1e-6) * sw_mask
 
-    loss_class = torch.mean(loss_class)
+    loss_class = class_crit(y_class_perm.view(-1, 1), out_classes.view(-1, out_classes.size()[-1]))
+    loss_class = torch.sum(loss_class.view(sw_mask.size()) * sw_mask) / torch.sum(sw_mask)
 
-    loss_box = 0
-    '''
-    for box_coord in range(2):
-        box_loss = MaskedBoxLoss()(y_boxes_perm[:, :, box_coord, :].view(-1, y_boxes.size(-1)),
-                                   box_preds[:, :, box_coord, :].view(-1, box_preds.size(-1)),
-                                   sw_mask.view(-1, 1))
-        loss_box += torch.mean(box_loss)
-    loss_box = loss_box/2
-    '''
     loss_bce = stop_xentropy(y_mask_perm.view(-1, y_mask.size()[-1]),
-                             out_masks.view(-1, out_masks.size()[-1]),
-                             sw_mask.view(-1, 1))
-    loss_bce = torch.mean(loss_bce)
+                             out_masks.view(-1, out_masks.size()[-1]))
+
+    loss_bce = torch.sum(loss_bce.view(sw_mask.size())*sw_mask) / torch.sum(sw_mask)
 
     out_masks = torch.sigmoid(out_masks)
     th_out_masks = (out_masks > 0.5).float()
     loss_mask_iou = mask_siou(y_mask_perm.view(-1, y_mask.size()[-1]),
-                              out_masks.view(-1, out_masks.size()[-1]),
-                              sw_mask.view(-1, 1))
-    loss_mask_iou = torch.mean(loss_mask_iou)
+                              out_masks.view(-1, out_masks.size()[-1]))
+
+    loss_mask_iou = torch.sum(loss_mask_iou.view(sw_mask.size()) * weight_mask) / torch.sum(sw_mask)
 
     loss_mask_iou_th = mask_siou(y_mask_perm.view(-1, y_mask.size()[-1]),
-                                 th_out_masks.view(-1, th_out_masks.size()[-1]),
-                                 sw_mask.view(-1, 1)).mean().item()
+                                 th_out_masks.view(-1, th_out_masks.size()[-1]))
 
-    # stopping loss is computed using the masking variable as ground truth
-    # loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1), sw_class.view(-1, 1))
-    loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1))
-    loss_stop = torch.mean(loss_stop)
+    loss_mask_iou_th = torch.sum(loss_mask_iou_th.view(sw_mask.size()) * sw_mask) / torch.sum(sw_mask)
+
+    loss_stop = stop_xentropy(sw_mask.float().view(-1, 1), out_stops.squeeze().view(-1, 1)).mean()
 
     # total loss is the weighted sum of all terms
     loss = args.iou_weight * loss_mask_iou
@@ -232,10 +180,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
         loss += args.class_weight*loss_class
     if args.use_stop_loss:
         loss += args.stop_weight*loss_stop
-    if args.use_box_loss:
-        loss +=args.box_weight*loss_box
     loss+=args.bce_weight*loss_bce
-    # loss += 1e-5*pixel_counts
 
     optim.zero_grad()
 
@@ -245,11 +190,7 @@ def runIter(args, encoder, decoder, x, y_mask, y_boxes, y_class, sw_mask,
 
     losses = {'loss': loss.item(), 'iou': loss_mask_iou.item(), 'stop': loss_stop.item(),
               'class': loss_class.item(), 'bce': loss_bce.item(),
-              'iou_th': loss_mask_iou_th}
-
-    out_masks = torch.sigmoid(out_masks)
-    # outs = [out_masks.data, out_classes.data]
-    # perms = [y_mask_perm.data, y_class_perm.data]
+              'iou_th': loss_mask_iou_th.item()}
 
     return losses
 
@@ -409,18 +350,17 @@ def trainIters(args):
                 encoder.eval()
                 decoder.eval()
 
-            epoch_losses = {'loss': [], 'iou': [], 'iou_th':[], 'class': [], 'stop': [], 'box': [], 'bce': []}
+            epoch_losses = {'loss': [], 'iou': [], 'iou_th':[], 'class': [], 'stop': [], 'bce': []}
             total_step = len(loaders[split])
-            for batch_idx, (img, masks, cats, boxes, sw) in enumerate(loaders[split]):
+            for batch_idx, (img, masks, cats, sw) in enumerate(loaders[split]):
                 # send batch to GPU
                 y_mask = masks.to(device)
                 y_class = cats.to(device)
                 x = img.to(device)
                 sw_mask = sw.to(device)
-                boxes = boxes.to(device).float()
                 # we forward (and backward & update if training set)
                 losses = runIter(args, encoder, decoder, x, y_mask,
-                                 boxes, y_class, sw_mask,
+                                 y_class, sw_mask,
                                  crits, optimizer, mode=split, keep_gradients=keep_cnn_gradients)
 
                 for k, v in losses.items():
@@ -440,7 +380,7 @@ def trainIters(args):
                     for k in epoch_losses.keys():
                         if len(epoch_losses[k]) == 0:
                             continue
-                        this_one = "%s: %.4f" % (k, np.mean(epoch_losses[k]))
+                        this_one = "%s: %.4f" % (k, np.mean(epoch_losses[k][-args.print_every:]))
                         lossesstr += this_one + ', '
                         # this only displays nll loss on captions, the rest of losses will be in tensorboard logs
                     strtoprint = 'Split: %s, Epoch [%d/%d], Step [%d/%d], Losses: %sTime: %.4f' % (split, e,

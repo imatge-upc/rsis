@@ -80,8 +80,6 @@ def softIoU(target, out, e=1e-6):
     num = (out*target).sum(1,True)
     den = (out+target-out*target).sum(1,True) + e
     iou = num / den
-    # set iou to 0 for masks out of range
-    # this way they will never be picked for hungarian matching
     cost = (1 - iou)
 
     return cost.squeeze()

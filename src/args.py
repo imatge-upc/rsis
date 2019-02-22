@@ -116,7 +116,7 @@ def get_parser():
                         choices=['sum','concat','mul','none'])
     parser.add_argument('-model_name', dest='model_name', default='model')
     parser.add_argument('-log_file', dest='log_file', default='train.log')
-    parser.add_argument('-hidden_size', dest='hidden_size', default = 128, type=int)
+    parser.add_argument('-hidden_size', dest='hidden_size', default = 64, type=int)
     parser.add_argument('-kernel_size', dest='kernel_size', default = 3, type=int)
     parser.add_argument('-num_lstms', dest='num_lstms', default=1, type=int)
     parser.add_argument('-dropout', dest='dropout', default = 0.0, type=float)
